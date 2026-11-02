@@ -1,0 +1,207 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-manrope);
+  --font-serif: var(--font-playfair);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-gold: #d4af37;
+  --color-gold-light: #e8cf7a;
+  --color-gold-deep: #9c7a1e;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Люкс тёмная тема: графит + золото */
+:root {
+  --radius: 0.75rem;
+  --background: #0a0a0d;
+  --foreground: #f4efe4;
+  --card: #141419;
+  --card-foreground: #f4efe4;
+  --popover: #191920;
+  --popover-foreground: #f4efe4;
+  --primary: #d4af37;
+  --primary-foreground: #17120a;
+  --secondary: #1d1d24;
+  --secondary-foreground: #ede7d9;
+  --muted: #1a1a21;
+  --muted-foreground: #a29c8d;
+  --accent: #241e10;
+  --accent-foreground: #e8cf7a;
+  --destructive: #c0392b;
+  --destructive-foreground: #fff5f5;
+  --border: rgba(212, 175, 55, 0.16);
+  --input: rgba(212, 175, 55, 0.28);
+  --ring: #d4af37;
+  --chart-1: #d4af37;
+  --chart-2: #b23a48;
+  --chart-3: #8a6d3b;
+  --chart-4: #e8cf7a;
+  --chart-5: #6e5a4e;
+  --sidebar: #141419;
+  --sidebar-foreground: #f4efe4;
+  --sidebar-primary: #d4af37;
+  --sidebar-primary-foreground: #17120a;
+  --sidebar-accent: #241e10;
+  --sidebar-accent-foreground: #e8cf7a;
+  --sidebar-border: rgba(212, 175, 55, 0.16);
+  --sidebar-ring: #d4af37;
+}
+
+.dark {
+  --background: #0a0a0d;
+  --foreground: #f4efe4;
+  --card: #141419;
+  --card-foreground: #f4efe4;
+  --popover: #191920;
+  --popover-foreground: #f4efe4;
+  --primary: #d4af37;
+  --primary-foreground: #17120a;
+  --secondary: #1d1d24;
+  --secondary-foreground: #ede7d9;
+  --muted: #1a1a21;
+  --muted-foreground: #a29c8d;
+  --accent: #241e10;
+  --accent-foreground: #e8cf7a;
+  --destructive: #c0392b;
+  --destructive-foreground: #fff5f5;
+  --border: rgba(212, 175, 55, 0.16);
+  --input: rgba(212, 175, 55, 0.28);
+  --ring: #d4af37;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply text-foreground;
+    background-color: var(--background);
+    background-image:
+      radial-gradient(1100px 700px at 75% -10%, rgba(212, 175, 55, 0.09), transparent 60%),
+      radial-gradient(900px 650px at -15% 108%, rgba(212, 175, 55, 0.06), transparent 55%),
+      radial-gradient(500px 400px at 50% 50%, rgba(212, 175, 55, 0.025), transparent 70%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: rgba(212, 175, 55, 0.35);
+    color: #fff8e6;
+  }
+}
+
+/* Золотой градиентный текст для заголовков */
+.gold-text {
+  background: linear-gradient(115deg, #f1d98a 0%, #d4af37 45%, #9c7a1e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Золотая кнопка */
+.gold-btn {
+  background-image: linear-gradient(120deg, #e8cf7a 0%, #d4af37 48%, #b8860b 100%);
+  color: #191307;
+  box-shadow: 0 4px 18px rgba(212, 175, 55, 0.32);
+}
+.gold-btn:hover {
+  filter: brightness(1.07);
+}
+.gold-btn:disabled {
+  filter: saturate(0.4) brightness(0.75);
+  box-shadow: none;
+}
+
+/* Тонкий золотой скроллбар */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(212, 175, 55, 0.4) transparent;
+}
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.35);
+  border-radius: 9999px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 175, 55, 0.55);
+}
+
+/* Мерцающий скелетон */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(232, 207, 122, 0.07), transparent);
+  animation: shimmer 1.9s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Кастомный инпут цвета */
+.color-chip {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+.color-chip::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.color-chip::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+.color-chip::-moz-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
