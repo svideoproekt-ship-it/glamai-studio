@@ -21,10 +21,17 @@ export async function GET(req: NextRequest) {
   // Частая ошибка: в .env остался текст-заполнитель из .env.example вместо ключа
   const isPlaceholderKey =
     envKeySet && /вставьте|placeholder|your[_-]?key|пример/i.test(String(process.env.ZAI_API_KEY));
+  // Частая ошибка при вставке: ключ разорван переносом строки или содержит пробелы
+  const keyHasWhitespace = envKeySet && /\s/.test(String(process.env.ZAI_API_KEY));
 
   // Как это сделает SDK: ensureZaiConfig() пишет конфиг из env, если нужно.
   ensureZaiConfig();
   const cfg = findZaiConfig();
+
+  // Режим API: у публичного api.z.ai нет правки фото (/images/generations/edit) —
+  // приложение само переключится на портретный режим; сообщаем об этом заранее.
+  const baseUrl = String(process.env.ZAI_BASE_URL ?? "");
+  const isPublicApi = /api\.z\.ai|bigmodel/i.test(baseUrl);
 
   const checks: Array<{ name: string; ok: boolean; hint: string }> = [
     {
@@ -34,7 +41,9 @@ export async function GET(req: NextRequest) {
       hint: isPlaceholderKey
         ? "В ZAI_API_KEY остался текст-заполнитель из .env.example. Впишите настоящий ключ из кабинета Z.AI и перезапустите сервер (на Vercel — обновите переменную и сделайте Redeploy)."
         : envKeySet && envUrlSet
-        ? "ОК"
+        ? keyHasWhitespace
+          ? "Заданы, но в ZAI_API_KEY есть пробел или перенос строки — при вставке ключ разорвался на части. Пересохраните его одной строкой (формат ID.секрет, без пробелов) и сделайте Redeploy."
+          : "ОК"
         : cfg.found
           ? `Не заданы, но конфиг уже найден (${cfg.path}) — ИИ доступен. Для Vercel переменные всё равно нужны.`
           : !envKeySet && !envUrlSet
@@ -71,7 +80,9 @@ export async function GET(req: NextRequest) {
         ok: false,
         detail: /429|too many|rate limit/i.test(raw)
           ? "Ключ принят, но сработал лимит запросов (429). Подождите 1–2 минуты."
-          : /401|403|unauthorized|api key/i.test(raw)
+          : /invalid header value|newline/i.test(raw)
+            ? "В ключе ZAI_API_KEY есть перенос строки или недопустимый символ — обычно ключ разрывается на две строки при вставке. Пересохраните его одной строкой (формат ID.секрет, без пробелов) и сделайте Redeploy."
+            : /401|403|unauthorized|api key/i.test(raw)
             ? "ИИ отверг ключ (401/403). Проверьте ZAI_API_KEY и баланс аккаунта Z.AI."
             : `Ошибка обращения к ИИ: ${raw.slice(0, 160)}`,
       };
@@ -91,9 +102,20 @@ export async function GET(req: NextRequest) {
         ZAI_BASE_URL: envUrlSet ? process.env.ZAI_BASE_URL : "не задан",
       },
       checks,
+      imageMode: isPublicApi
+        ? {
+            mode: "public",
+            note: "Публичный API Z.AI не поддерживает правку фотографии. Приложение создаст образ как фотореалистичный портрет по описанию внешности с вашего фото — лицо может немного отличаться от оригинала."
+          }
+        : {
+            mode: "custom",
+            note: "Нестандартный ZAI_BASE_URL: приложение попытается править фото напрямую (с сохранением лица), при недоступности — перейдёт в портретный режим."
+          },
       aiPing,
       advice: ok
-        ? "Всё настроено — генерация должна работать. Если она всё же падает, пришлите текст ошибки из приложения."
+        ? isPublicApi
+          ? "Всё настроено — генерация работает в портретном режиме (см. imageMode). Если она всё же падает, пришлите текст ошибки из приложения."
+          : "Всё настроено — генерация должна работать. Если она всё же падает, пришлите текст ошибки из приложения."
         : wantsPing
           ? "Откройте подсказки в поле checks и исправьте конфигурацию, затем обновите страницу."
           : "Проверьте подсказки в поле checks. После исправления откройте /api/health?ping=1 — он проверит и сам ключ.",

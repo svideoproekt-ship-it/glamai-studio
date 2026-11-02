@@ -12,6 +12,8 @@ import {
   type ProductState,
 } from "@/lib/makeup";
 import { ensureZaiConfig } from "@/lib/zai-config";
+import { visionChat } from "@/lib/zai-vision";
+import { generateMakeupImage, sizeForGlmImage, type ImagePipeline } from "@/lib/zai-image";
 
 // Vercel Hobby ограничивает функцию 60 с — задаём ровно лимит плана,
 // чтобы деплой/вызов не падал из-за завышенного maxDuration.
@@ -48,6 +50,9 @@ function friendlyError(err: unknown): string {
   ) {
     return "Ключ доступа к ИИ не найден. Локально: создайте файл .env по образцу .env.example (впишите ZAI_API_KEY и ZAI_BASE_URL), сохраните и перезапустите сервер. На Vercel: Settings → Environment Variables → добавьте ZAI_API_KEY и ZAI_BASE_URL, затем Redeploy. Проверить настройку можно, открыв адрес <адрес-сайта>/api/health — он покажет, что именно не так.";
   }
+  if (low.includes("invalid header value") || low.includes("newline")) {
+    return "В ключе доступа к ИИ есть перенос строки или пробел — обычно ключ разрывается на две строки при вставке. Пересохраните переменную ZAI_API_KEY одной строкой (формат ID.секрет, без пробелов) в настройках Vercel (Settings → Environment Variables) и сделайте Redeploy.";
+  }
   if (
     low.includes("api key") ||
     low.includes("apikey") ||
@@ -58,8 +63,19 @@ function friendlyError(err: unknown): string {
   ) {
     return "ИИ-сервис не принял ключ доступа. Если приложение развёрнуто на Vercel, добавьте переменные окружения ZAI_API_KEY и ZAI_BASE_URL (Settings → Environment Variables) и сделайте redeploy. Проверить ключ можно, открыв адрес <адрес-сайта>/api/health?ping=1. Инструкция — в README-DEPLOY-RU.md, раздел «Если генерация отказывает».";
   }
+  if (low.includes("status 404") || (/\b404\b/.test(low) && low.includes("api request"))) {
+    return "ИИ-сервис не нашёл запрошенную операцию (404). Версия 1.3.0 сама переключается на резервный режим, поэтому такая ошибка больше не должна появляться. Обновите код на GitHub (файлы версии 1.3.0) и сделайте Redeploy. Если ошибка осталась — пришлите её текст целиком.";
+  }
   if (low.includes("timeout") || low.includes("timed out") || low.includes("aborted") || low.includes("econnreset") || low.includes("fetch failed")) {
     return "ИИ-сервис не успел ответить (таймаут). Попробуйте ещё раз — обычно вторая попытка проходит.";
+  }
+  if (
+    low.includes("insufficient balance") ||
+    low.includes("no resource package") ||
+    low.includes("余额不足") ||
+    low.includes("please recharge")
+  ) {
+    return "На аккаунте Z.AI не хватает средств для генерации изображения: модель картинок тарифицируется отдельно (примерно $0.015 за изображение) и не входит в подписки. Пополните баланс на z.ai в разделе Billing (или подключите пакет ресурсов) и повторите генерацию через пару минут.";
   }
   if (low.includes("429") || low.includes("rate limit") || low.includes("too many")) {
     return "Слишком много запросов к ИИ-сервису подряд. Подождите минуту и попробуйте снова.";
@@ -88,31 +104,24 @@ interface TryonBody {
   fastMode?: boolean;
 }
 
-// Шаг 1 референсного режима: vision-модель «снимает рецепт» макияжа с референса
+// Шаг 1 референсного режима: vision-модель «снимает рецепт» макияжа с референса.
+// visionChat сам выбирает рабочий путь: /chat/completions/vision на внутреннем
+// шлюзе или обычный /chat/completions с картинкой на публичном api.z.ai.
 async function extractMakeupRecipe(
   zai: Awaited<ReturnType<typeof ZAI.create>>,
   referenceDataUrl: string,
   startedAt: number
 ): Promise<string> {
-  const response = (await callWithRateLimitRetry(
+  const recipe = await callWithRateLimitRetry(
     () =>
-      zai.chat.completions.createVision({
-        model: "glm-4.6v",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: REFERENCE_VISION_PROMPT },
-              { type: "image_url", image_url: { url: referenceDataUrl } },
-            ],
-          },
-        ],
-        thinking: { type: "disabled" },
+      visionChat(zai, {
+        text: REFERENCE_VISION_PROMPT,
+        images: [referenceDataUrl],
+        models: ["glm-4.6v", "glm-4.6v-flash"],
       }),
     { startedAt, deadlineMs: 55_000, label: "reference vision" }
-  )) as { choices?: Array<{ message?: { content?: string } }> };
+  );
 
-  const recipe = response?.choices?.[0]?.message?.content?.trim();
   if (!recipe) {
     throw new Error("ИИ не смог разобрать макияж на референсе. Попробуйте другое фото.");
   }
@@ -163,7 +172,8 @@ async function callWithRateLimitRetry<T>(
   throw lastErr;
 }
 
-// QA-аудит: сравниваем оригинал и результат, ищем отклонения оттенков/лишний макияж
+// QA-аудит: сравниваем оригинал и результат, ищем отклонения оттенков/лишний макияж.
+// Модель — бесплатная glm-4.6v-flash (платная glm-4.6v как запасной вариант).
 async function auditResult(
   zai: Awaited<ReturnType<typeof ZAI.create>>,
   resultDataUrl: string,
@@ -171,21 +181,11 @@ async function auditResult(
   requested: string
 ): Promise<string> {
   try {
-    const response = (await zai.chat.completions.createVision({
-      model: "glm-4.6v",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: buildAuditPrompt(requested) },
-            { type: "image_url", image_url: { url: originalDataUrl } },
-            { type: "image_url", image_url: { url: resultDataUrl } },
-          ],
-        },
-      ],
-      thinking: { type: "disabled" },
-    })) as { choices?: Array<{ message?: { content?: string } }> };
-    const text = response?.choices?.[0]?.message?.content?.trim() ?? "";
+    const text = await visionChat(zai, {
+      text: buildAuditPrompt(requested),
+      images: [originalDataUrl, resultDataUrl],
+      models: ["glm-4.6v-flash", "glm-4.6v"],
+    });
     const issues = /ISSUES:\s*(.+)/i.exec(text)?.[1]?.trim() ?? "none";
     return /none/i.test(issues) ? "none" : issues.slice(0, 600);
   } catch {
@@ -214,12 +214,15 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    // Локальная константа: внутри колбэков TS теряет сужение типа свойства body
+    const modelPhoto: string = body.modelPhoto;
     if (mode === "reference" && !isDataUrl(body.referencePhoto)) {
       return NextResponse.json(
         { success: false, error: "Загрузите референсное фото макияжа." },
         { status: 400 }
       );
     }
+    const referencePhoto = mode === "reference" ? (body.referencePhoto as string) : null;
 
     const userPrompt =
       typeof body.userPrompt === "string" ? body.userPrompt.slice(0, 800) : "";
@@ -233,7 +236,7 @@ export async function POST(req: NextRequest) {
 
     if (mode === "reference") {
       // Шаг 1: разбор референса, шаг 2: нанесение «рецепта» на оригинал
-      const recipe = await extractMakeupRecipe(zai, body.referencePhoto as string, startedAt);
+      const recipe = await extractMakeupRecipe(zai, referencePhoto as string, startedAt);
       description = recipe;
       prompt = buildReferenceEditPrompt(recipe, userPrompt);
     } else {
@@ -256,19 +259,22 @@ export async function POST(req: NextRequest) {
     }
 
     const size = pickSize(body.ratio ?? 0.75);
-    const editBody = { prompt, images: [{ url: body.modelPhoto }], size } as Parameters<
-      typeof zai.images.generations.edit
-    >[0];
 
-    // Страховка: если edit-вызов завис, не даём функции уйти в таймаут платформы —
+    // Страховка: если генерация зависла, не даём функции уйти в таймаут платформы —
     // возвращаем понятную ошибку, пока бюджет ещё позволяет.
+    // generateMakeupImage сам выбирает способ: правка фото (внутренний шлюз) или
+    // портрет по описанию внешности (публичный api.z.ai, где правки нет).
     const EDIT_TIMEOUT_MS = 48_000;
-    let response: Awaited<ReturnType<typeof zai.images.generations.edit>>;
+    let genResult: Awaited<ReturnType<typeof generateMakeupImage>>;
     try {
-      response = await callWithRateLimitRetry(
+      genResult = await callWithRateLimitRetry(
         () =>
           Promise.race([
-            zai.images.generations.edit(editBody),
+            generateMakeupImage(zai, {
+              makeupPrompt: prompt,
+              modelPhoto,
+              size,
+            }),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error("edit timeout")), EDIT_TIMEOUT_MS)
             ),
@@ -282,10 +288,8 @@ export async function POST(req: NextRequest) {
         { status: 502 }
       );
     }
-    const base64 = response?.data?.[0]?.base64;
-    if (!base64) {
-      throw new Error("ИИ не вернул изображение. Попробуйте ещё раз.");
-    }
+    const pipeline: ImagePipeline = genResult.pipeline;
+    const base64 = genResult.base64;
     let imageDataUrl: string;
     try {
       imageDataUrl = await toJpegDataUrl(base64);
@@ -294,8 +298,8 @@ export async function POST(req: NextRequest) {
     }
 
     // QA-цикл: аудит результата и один корректирующий ретрай с выбором лучшего
-    // варианта. Работает в ОБЕИХ режимах; пропускается в быстром режиме
-    // (fastMode — экономия лимита) и если время поджимает (Hobby ~60 c).
+    // варианта. Только для режима правки фото: в портретном режиме сравнивать
+    // «оригинал vs результат» бессмысленно (лицо сгенерировано заново).
     let audit: string = "none";
     let retried = false;
     const fastMode = body.fastMode === true;
@@ -309,7 +313,7 @@ export async function POST(req: NextRequest) {
           })
         : `makeup transferred from the reference photo: ${description ?? ""}`;
 
-    if (!fastMode && Date.now() - startedAt < AUDIT_LIMIT_MS) {
+    if (pipeline === "edit" && !fastMode && Date.now() - startedAt < AUDIT_LIMIT_MS) {
       audit = await auditResult(zai, imageDataUrl, body.modelPhoto, requested);
       console.log(`[tryon] qa: audit1 at ${((Date.now() - startedAt) / 1000).toFixed(1)}s -> ${audit.slice(0, 120)}`);
       if (audit !== "none" && Date.now() - startedAt < RETRY_LIMIT_MS) {
@@ -319,15 +323,16 @@ export async function POST(req: NextRequest) {
           const retryRes = await Promise.race([
             callWithRateLimitRetry(
               () =>
-                zai.images.generations.edit({
-                  ...editBody,
-                  prompt: buildCorrectivePrompt(prompt, audit),
+                generateMakeupImage(zai, {
+                  makeupPrompt: buildCorrectivePrompt(prompt, audit),
+                  modelPhoto,
+                  size,
                 }),
               { startedAt, deadlineMs: 55_000, label: "qa retry" }
             ),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRY_TIMEOUT_MS)),
           ]);
-          const retryB64 = (retryRes as { data?: Array<{ base64?: string }> } | null)?.data?.[0]?.base64;
+          const retryB64 = (retryRes as Awaited<ReturnType<typeof generateMakeupImage>> | null)?.base64;
           console.log(`[tryon] qa: retry done at ${((Date.now() - startedAt) / 1000).toFixed(1)}s, got image: ${Boolean(retryB64)}`);
           if (retryB64) {
             let retryUrl: string;
@@ -363,9 +368,10 @@ export async function POST(req: NextRequest) {
       image: imageDataUrl,
       prompt,
       description,
-      size,
+      size: pipeline === "portrait" ? sizeForGlmImage(size) : size,
       audit: fastMode ? "fast-mode" : audit,
       retried,
+      pipeline,
     });
   } catch (err) {
     console.error("[tryon] error:", err);

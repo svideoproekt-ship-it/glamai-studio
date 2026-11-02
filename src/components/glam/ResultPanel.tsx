@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Info, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -25,6 +25,8 @@ interface ResultPanelProps {
   result: string | null;
   usedPrompt: string | null;
   usedDescription: string | null;
+  /** Публичный API Z.AI: результат — портрет по описанию внешности, не правка фото */
+  portraitMode?: boolean;
   onRegenerate: () => void;
   onReset: () => void;
 }
@@ -35,6 +37,7 @@ export function ResultPanel({
   result,
   usedPrompt,
   usedDescription,
+  portraitMode,
   onRegenerate,
   onReset,
 }: ResultPanelProps) {
@@ -86,6 +89,16 @@ export function ResultPanel({
 
   return (
     <div className="space-y-4">
+      {portraitMode && (
+        <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-left">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+          <p className="text-[11px] leading-relaxed text-amber-100/80">
+            Режим портрета: тариф Z.AI на вашем сервере не поддерживает правку фотографии,
+            поэтому образ создан как фотореалистичный портрет по описанию внешности с вашего
+            фото. Лицо может немного отличаться от оригинала.
+          </p>
+        </div>
+      )}
       <BeforeAfterSlider before={original ?? result} after={result} alt="Образ GlamAI" />
 
       <div className="flex flex-wrap items-center justify-center gap-2">

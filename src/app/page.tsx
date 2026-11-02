@@ -25,6 +25,8 @@ interface TryonResponse {
   prompt?: string;
   description?: string | null;
   error?: string;
+  /** "portrait" — публичный API Z.AI: результат — портрет по описанию внешности */
+  pipeline?: "edit" | "portrait";
 }
 
 interface HealthCheck {
@@ -47,6 +49,7 @@ export default function Home() {
   const [result, setResult] = useState<string | null>(null);
   const [usedPrompt, setUsedPrompt] = useState<string | null>(null);
   const [usedDescription, setUsedDescription] = useState<string | null>(null);
+  const [portraitMode, setPortraitMode] = useState(false);
   const [configIssue, setConfigIssue] = useState<string | null>(null);
 
   // При открытии страницы тихо проверяем конфигурацию ИИ: если ключ не настроен,
@@ -111,6 +114,7 @@ export default function Home() {
     setResult(null);
     setUsedPrompt(null);
     setUsedDescription(null);
+    setPortraitMode(false);
 
     try {
       const res = await fetch("/api/tryon", {
@@ -153,6 +157,7 @@ export default function Home() {
       setResult(data.image);
       setUsedPrompt(data.prompt ?? null);
       setUsedDescription(data.description ?? null);
+      setPortraitMode(data.pipeline === "portrait");
       toast({ title: "Образ готов ✨", description: "Сравните «до и после» и сохраните." });
     } catch (e) {
       showError(e instanceof Error ? e.message : "Неизвестная ошибка");
@@ -177,6 +182,7 @@ export default function Home() {
     setResult(null);
     setUsedPrompt(null);
     setUsedDescription(null);
+    setPortraitMode(false);
   }, []);
 
   // Галочка «быстрый режим» — один и тот же элемент в обеих вкладках
@@ -401,6 +407,7 @@ export default function Home() {
               result={result}
               usedPrompt={usedPrompt}
               usedDescription={usedDescription}
+              portraitMode={portraitMode}
               onRegenerate={generate}
               onReset={resetResult}
             />

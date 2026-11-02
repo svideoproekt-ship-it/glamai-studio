@@ -84,11 +84,22 @@ export function ensureZaiConfig(): void {
     return;
   }
 
+  // Частая ошибка при вставке: в ключ попадает перенос строки или пробелы
+  // (например, части ключа скопировались друг под другом). HTTP-заголовок не
+  // переносит переводы строк — вычищаем пробельные символы заранее.
+  const cleanKey = apiKey.replace(/\s+/g, "");
+  const cleanUrl = baseUrl.trim();
+  if (cleanKey !== apiKey) {
+    console.warn(
+      "[zai-config] ZAI_API_KEY содержал пробелы/переносы строк — они удалены автоматически. Ключ должен быть одной строкой вида ID.секрет."
+    );
+  }
+
   // Конфиг уже доступен SDK (пользователь создал вручную или записали раньше) — не трогаем.
   const existing = findZaiConfig();
   if (existing.found) return;
 
-  const payload = JSON.stringify({ baseUrl, apiKey });
+  const payload = JSON.stringify({ baseUrl: cleanUrl, apiKey: cleanKey });
 
   // Шаг 1: папка проекта — работает локально на любой ОС.
   try {
