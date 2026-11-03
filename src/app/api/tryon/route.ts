@@ -12,7 +12,8 @@ import {
   type ProductState,
 } from "@/lib/makeup";
 import { ensureZaiConfig } from "@/lib/zai-config";
-import { visionChat } from "@/lib/zai-vision";
+import { visionChatAny } from "@/lib/vision";
+import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { generateMakeupImage, sizeForGlmImage, type ImagePipeline } from "@/lib/zai-image";
 
 // Vercel Hobby ограничивает функцию 60 с — задаём ровно лимит плана,
@@ -43,6 +44,10 @@ async function toJpegDataUrl(pngBase64: string): Promise<string> {
 function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const low = raw.toLowerCase();
+  // Ошибки Яндекс-движка уже переведены на русский в yandex-ai.ts — показываем как есть
+  if (low.includes("yandex") || low.includes("яндекс")) {
+    return raw;
+  }
   if (
     low.includes("configuration file not found") ||
     low.includes("config file") ||
@@ -105,19 +110,16 @@ interface TryonBody {
 }
 
 // Шаг 1 референсного режима: vision-модель «снимает рецепт» макияжа с референса.
-// visionChat сам выбирает рабочий путь: /chat/completions/vision на внутреннем
-// шлюзе или обычный /chat/completions с картинкой на публичном api.z.ai.
+// Работает на любом движке: Z.AI (glm-4.6v) или Яндекс (мультимодальный YandexGPT).
 async function extractMakeupRecipe(
-  zai: Awaited<ReturnType<typeof ZAI.create>>,
   referenceDataUrl: string,
   startedAt: number
 ): Promise<string> {
   const recipe = await callWithRateLimitRetry(
     () =>
-      visionChat(zai, {
+      visionChatAny({
         text: REFERENCE_VISION_PROMPT,
         images: [referenceDataUrl],
-        models: ["glm-4.6v", "glm-4.6v-flash"],
       }),
     { startedAt, deadlineMs: 55_000, label: "reference vision" }
   );
@@ -173,18 +175,17 @@ async function callWithRateLimitRetry<T>(
 }
 
 // QA-аудит: сравниваем оригинал и результат, ищем отклонения оттенков/лишний макияж.
-// Модель — бесплатная glm-4.6v-flash (платная glm-4.6v как запасной вариант).
+// Работает на любом движке: Z.AI — бесплатная glm-4.6v-flash,
+// Яндекс — мультимодальный YandexGPT.
 async function auditResult(
-  zai: Awaited<ReturnType<typeof ZAI.create>>,
   resultDataUrl: string,
   originalDataUrl: string,
   requested: string
 ): Promise<string> {
   try {
-    const text = await visionChat(zai, {
+    const text = await visionChatAny({
       text: buildAuditPrompt(requested),
       images: [originalDataUrl, resultDataUrl],
-      models: ["glm-4.6v-flash", "glm-4.6v"],
     });
     const issues = /ISSUES:\s*(.+)/i.exec(text)?.[1]?.trim() ?? "none";
     return /none/i.test(issues) ? "none" : issues.slice(0, 600);
@@ -228,15 +229,17 @@ export async function POST(req: NextRequest) {
       typeof body.userPrompt === "string" ? body.userPrompt.slice(0, 800) : "";
     const products = body.products ?? {};
 
-    // На Vercel ключи берутся из переменных окружения (см. src/lib/zai-config.ts)
-    ensureZaiConfig();
-    const zai = await ZAI.create();
+    // Выбор движка: Яндекс (YC_API_KEY + YC_FOLDER_ID) или Z.AI (по умолчанию).
+    // Ключи создаются только для того движка, который реально активен:
+    // на Vercel с Яндекс-переменными ZAI-конфиг не требуется.
+    const provider = getAiProvider();
+    const zai = provider === "zai" ? ((ensureZaiConfig(), await ZAI.create())) : undefined;
     let prompt: string;
     let description: string | null = null;
 
     if (mode === "reference") {
       // Шаг 1: разбор референса, шаг 2: нанесение «рецепта» на оригинал
-      const recipe = await extractMakeupRecipe(zai, referencePhoto as string, startedAt);
+      const recipe = await extractMakeupRecipe(referencePhoto as string, startedAt);
       description = recipe;
       prompt = buildReferenceEditPrompt(recipe, userPrompt);
     } else {
@@ -314,7 +317,7 @@ export async function POST(req: NextRequest) {
         : `makeup transferred from the reference photo: ${description ?? ""}`;
 
     if (pipeline === "edit" && !fastMode && Date.now() - startedAt < AUDIT_LIMIT_MS) {
-      audit = await auditResult(zai, imageDataUrl, body.modelPhoto, requested);
+      audit = await auditResult(imageDataUrl, body.modelPhoto, requested);
       console.log(`[tryon] qa: audit1 at ${((Date.now() - startedAt) / 1000).toFixed(1)}s -> ${audit.slice(0, 120)}`);
       if (audit !== "none" && Date.now() - startedAt < RETRY_LIMIT_MS) {
         try {
@@ -343,7 +346,7 @@ export async function POST(req: NextRequest) {
             }
             if (Date.now() - startedAt < AUDIT2_LIMIT_MS) {
               // Время есть: второй вариант тоже аудируем и возвращаем лучший из двух
-              const retryAudit = await auditResult(zai, retryUrl, body.modelPhoto, requested);
+              const retryAudit = await auditResult(retryUrl, body.modelPhoto, requested);
               if (countIssues(retryAudit) < countIssues(audit)) {
                 imageDataUrl = retryUrl;
                 audit = retryAudit;
@@ -368,10 +371,11 @@ export async function POST(req: NextRequest) {
       image: imageDataUrl,
       prompt,
       description,
-      size: pipeline === "portrait" ? sizeForGlmImage(size) : size,
+      size: pipeline === "portrait" && provider === "zai" ? sizeForGlmImage(size) : size,
       audit: fastMode ? "fast-mode" : audit,
       retried,
       pipeline,
+      provider: providerLabel(provider),
     });
   } catch (err) {
     console.error("[tryon] error:", err);
