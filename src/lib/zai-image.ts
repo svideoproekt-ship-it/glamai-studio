@@ -1,5 +1,8 @@
 import ZAI from "z-ai-web-dev-sdk";
-import { isRouteMissing, visionChat } from "@/lib/zai-vision";
+import { isRouteMissing } from "@/lib/zai-vision";
+import { getAiProvider } from "@/lib/ai-provider";
+import { visionChatAny } from "@/lib/vision";
+import { ensureYandexConfig, yandexArt } from "@/lib/yandex-ai";
 
 /**
  * Генерация образа с автоподбором способа:
@@ -19,6 +22,26 @@ import { isRouteMissing, visionChat } from "@/lib/zai-vision";
  */
 
 type Zai = Awaited<ReturnType<typeof ZAI.create>>;
+
+/**
+ * Лимит промпта YandexART — жёсткий (≈500 символов), поэтому для Яндекса
+ * портретный промпт собирается короче: внешность ужата сильнее макияжа.
+ */
+const YANDEX_PROMPT_LIMIT = 490;
+
+function buildYandexPortraitPrompt(makeupPrompt: string, identity: string): string {
+  const head = "Photorealistic studio beauty portrait of this person: ";
+  const style =
+    ". Same face and hairstyle as described. Head-and-shoulders, front-facing. Makeup: ";
+  const headLen = head.length + style.length + 2;
+  const identityBudget = 200;
+  const idRaw = identity.replace(/\s+/g, " ").slice(0, identityBudget);
+  const makeupBudget = Math.max(120, YANDEX_PROMPT_LIMIT - headLen - idRaw.length - 1);
+  const makeup =
+    makeupPrompt.length > makeupBudget ? `${makeupPrompt.slice(0, makeupBudget - 1)}…` : makeupPrompt;
+  const full = `${head}${idRaw}${style}${makeup}`;
+  return full.length > YANDEX_PROMPT_LIMIT ? full.slice(0, YANDEX_PROMPT_LIMIT - 1) + "…" : full;
+}
 
 export type ImagePipeline = "edit" | "portrait";
 
@@ -141,9 +164,15 @@ async function glmImageGenerate(
 }
 
 export async function generateMakeupImage(
-  zai: Zai,
+  zai: Zai | undefined,
   req: MakeupImageRequest
 ): Promise<MakeupImageResult> {
+  // Движок Яндекс: правка фото не предусмотрена — сразу портретный режим
+  // (YandexGPT снимает словесный портрет, YandexART рисует с макияжем).
+  if (getAiProvider() === "yandex" || !zai) {
+    return yandexMakeupImage(req);
+  }
+
   // Попытка 1: правка исходного фото (лицо сохраняется).
   try {
     const editBody = {
@@ -159,7 +188,7 @@ export async function generateMakeupImage(
   }
 
   // Попытка 2: портретный режим (правка недоступна).
-  const identityRaw = await visionChat(zai, {
+  const identityRaw = await visionChatAny({
     text: IDENTITY_VISION_PROMPT,
     images: [req.modelPhoto],
     models: ["glm-4.6v", "glm-4.6v-flash"],
@@ -169,5 +198,32 @@ export async function generateMakeupImage(
   const prompt = buildPortraitPrompt(req.makeupPrompt, identity);
   const size = sizeForGlmImage(req.size);
   const base64 = await glmImageGenerate(zai, prompt, size);
+  return { base64, pipeline: "portrait", identity };
+}
+
+/**
+ * Портретный режим на движке Яндекса:
+ *  1) YandexGPT (multimodal) снимает словесный портрет внешности с фото;
+ *  2) YandexART рисует фотореалистичный портрет с выбранным макияжем.
+ * Правки исходного фото у Яндекса нет — честно возвращаем pipeline: "portrait".
+ */
+async function yandexMakeupImage(req: MakeupImageRequest): Promise<MakeupImageResult> {
+  const cfg = ensureYandexConfig();
+  const startedAt = Date.now();
+
+  const identityRaw = await visionChatAny({
+    text: IDENTITY_VISION_PROMPT,
+    images: [req.modelPhoto],
+  });
+  const identity = identityRaw.replace(/\s+/g, " ").slice(0, 400);
+
+  const prompt = buildYandexPortraitPrompt(req.makeupPrompt, identity);
+
+  // Бюджет YandexART — что осталось от ~50 с (у Vercel-функции лимит 60 с,
+  // сверху ещё QA-аудит): 50 − (ушло на vision), но не больше 45 с и не меньше 15 с.
+  const remaining = 50_000 - (Date.now() - startedAt);
+  const artBudget = Math.max(15_000, Math.min(remaining, 45_000));
+
+  const base64 = await yandexArt(cfg, { prompt, size: req.size, budgetMs: artBudget });
   return { base64, pipeline: "portrait", identity };
 }
