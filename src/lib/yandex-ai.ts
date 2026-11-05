@@ -1,19 +1,27 @@
 /**
- * Адаптер к Yandex Cloud AI Studio (Foundation Models):
+ * Адаптер к Yandex Cloud AI Studio (Foundation Models) — v1.4.2
+ *
  *  - текст:      POST https://llm.api.cloud.yandex.net/foundationModels/v1/completion
  *  - vision:     POST https://llm.api.cloud.yandex.net/v1/chat/completions
  *                (OpenAI-совместимый режим: картинки передаются в content-части
- *                image_url как data URL. Отдельного REST-маршрута multimodalCompletion
- *                у llm.api.cloud.yandex.net нет — проверено probe-запросами, отвечает 404)
- *  - картинки:   POST https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync
- *                (YandexART — асинхронно: получаем operation, опрашиваем до готовности)
+ *                image_url как data URL)
+ *  - картинки:   POST https://ai.api.cloud.yandex.net/v1/images/generations
+ *                (НОВЫЙ синхронный Images API, модель aliceai-image-art-3.0/latest.
+ *                 Старые модели yandex-art / yandex-art-2.0 отключены Яндексом
+ *                 07.09.2026, а старый асинхронный imageGenerationAsync будет
+ *                 отключён — подтверждено поддержкой Яндекса 05.11.2026.
+ *                 Ответ приходит сразу: { data: [ { b64_json } ] }, опрос
+ *                 операций больше не нужен.)
  *
- * Авторизация: заголовок `Authorization: Api-Key <YC_API_KEY>`
- * (API-ключ сервисного аккаунта; аккаунту нужны роли
- *  ai.languageModels.user и ai.imageGeneration.user).
+ * Авторизация:
+ *  - текст и vision:  Authorization: Api-Key <YC_API_KEY>
+ *  - Images API:      Authorization: Bearer <YC_API_KEY> + заголовок
+ *                     OpenAI-Project: <YC_FOLDER_ID> (как в код-примере
+ *                     Playground AI Studio; проверено запросами 05.11.2026)
  *
- * Ошибки переводятся на понятный русский — сообщения этого файла
- * показываются пользователю как есть (friendlyError их пропускает).
+ * Аккаунту ключа нужны роли ai.languageModels.user и ai.imageGeneration.user.
+ * Ошибки переводятся на понятный русский — сообщения этого файла показываются
+ * пользователю как есть (friendlyError их пропускает).
  */
 
 export interface YandexConfig {
@@ -22,7 +30,7 @@ export interface YandexConfig {
 }
 
 const LLM_BASE = "https://llm.api.cloud.yandex.net";
-const OPS_BASE = "https://operation.api.cloud.yandex.net";
+const AI_API_BASE = "https://ai.api.cloud.yandex.net";
 
 /** Ключ и каталог: без них Яндекс-движок не работает. Русские ошибки — сразу в интерфейс. */
 export function ensureYandexConfig(): YandexConfig {
@@ -38,7 +46,7 @@ export function ensureYandexConfig(): YandexConfig {
       .join(" и ");
     throw new Error(
       `Не задан(ы) ${missing}. На Vercel: Settings → Environment Variables → добавьте YC_API_KEY и YC_FOLDER_ID, затем Redeploy. ` +
-        "YC_API_KEY — это API-ключ сервисного аккаунта Yandex Cloud (начинается с AQVN…), YC_FOLDER_ID — идентификатор каталога (folder id)."
+        "YC_API_KEY — это API-ключ Yandex Cloud (начинается с AQVN…), YC_FOLDER_ID — идентификатор каталога (folder id)."
     );
   }
   // Частая ошибка вставки: перенос строки внутри ключа — HTTP-заголовок так не умеет
@@ -56,7 +64,9 @@ function textModelUri(folderId: string): string {
 }
 
 function artModelUri(folderId: string): string {
-  const model = String(process.env.YC_ART_MODEL ?? "").trim() || "yandex-art/latest";
+  // По умолчанию — новая модель Images API. Старое имя yandex-art отключено Яндексом.
+  const model =
+    String(process.env.YC_ART_MODEL ?? "").trim() || "aliceai-image-art-3.0/latest";
   return `art://${folderId}/${model}`;
 }
 
@@ -81,10 +91,10 @@ function yandexApiError(
   let hint = "";
   if (status === 401) {
     hint =
-      "Яндекс не принял ключ (401). Проверьте YC_API_KEY: это API-ключ сервисного аккаунта (вид AQVN…), одной строкой, без пробелов. Пересохраните переменную в Vercel и сделайте Redeploy.";
+      "Яндекс не принял ключ (401). Проверьте YC_API_KEY: это API-ключ Yandex Cloud (вид AQVN…), одной строкой, без пробелов. Пересохраните переменную в Vercel и сделайте Redeploy.";
   } else if (status === 403) {
     hint =
-      "Яндекс запретил операцию (403). Обычно дело в ролях: сервисному аккаунту нужны роли ai.languageModels.user (текст и понимание фото) и ai.imageGeneration.user (YandexART), а также активный платёжный аккаунт в Yandex Cloud.";
+      "Яндекс запретил операцию (403). Обычно дело в ролях: аккаунту, которому принадлежит ключ, нужны роли ai.languageModels.user (текст и понимание фото) и ai.imageGeneration.user (генерация картинок), а также активный платёжный аккаунт в Yandex Cloud.";
   } else if (status === 404) {
     hint =
       "Яндекс не нашёл модель или каталог (404). Проверьте YC_FOLDER_ID (folder id из консоли Yandex Cloud) и, если задан YC_TEXT_MODEL / YC_ART_MODEL, — имя модели.";
@@ -93,7 +103,7 @@ function yandexApiError(
       "Сработал лимит запросов (429) в Yandex Cloud. Подождите минуту и попробуйте снова; если повторяется — проверьте квоты в консоли Yandex Cloud.";
   } else if (b.includes("billing") || b.includes("insufficient") || b.includes("balance") || b.includes("грант") || b.includes("grant")) {
     hint =
-      "У аккаунта Яндекса нет доступа к платной генерации: не активирован платёжный аккаунт или закончились средства/грант. Пополните баланс в консоли Yandex Cloud (Биллинг) в рублях и повторите.";
+      "У аккаунта Яндекса нет доступа к платной генерации: не активирован платёжный аккаунт или закончились средства. Пополните баланс в консоли Yandex Cloud (Биллинг) в рублях и повторите.";
   }
   return new Error(
     `Ошибка Yandex ${what} (HTTP ${status}). ${hint}${hint ? " " : ""}` +
@@ -106,7 +116,13 @@ async function postJson(
   url: string,
   apiKey: string,
   body: unknown,
-  timeoutMs: number
+  timeoutMs: number,
+  opts?: {
+    /** Схема авторизации: "api-key" (по умолчанию) или "bearer" — как в Images API. */
+    auth?: "api-key" | "bearer";
+    /** Дополнительные заголовки (например OpenAI-Project для Images API). */
+    extraHeaders?: Record<string, string>;
+  }
 ): Promise<{ status: number; json: unknown; raw: string }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -114,8 +130,11 @@ async function postJson(
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Api-Key ${apiKey}`,
+        ...(opts?.auth === "bearer"
+          ? { Authorization: `Bearer ${apiKey}` }
+          : { Authorization: `Api-Key ${apiKey}` }),
         "Content-Type": "application/json",
+        ...(opts?.extraHeaders ?? {}),
       },
       body: JSON.stringify(body),
       signal: ctrl.signal,
@@ -191,8 +210,7 @@ export async function yandexText(
 /**
  * Vision-запрос: текст + изображения (data URL) → описание/анализ.
  * Идём через OpenAI-совместимый эндпоинт /v1/chat/completions:
- * он принимает картинки в content-частях image_url (data URL),
- * а отдельный REST-маршрут multimodalCompletion у Яндекса отсутствует (404).
+ * он принимает картинки в content-частях image_url (data URL).
  */
 export async function yandexVision(
   cfg: YandexConfig,
@@ -230,114 +248,88 @@ export async function yandexVision(
   return text;
 }
 
-/** Пропорции для YandexART: пары чисел (как 3:4), а не пиксели. */
-export function aspectRatioForSize(size: string): { widthRatio: number; heightRatio: number } {
-  switch (size) {
-    case "768x1344":
-    case "720x1440":
-      return { widthRatio: 1, heightRatio: 2 };
-    case "864x1152":
-      return { widthRatio: 3, heightRatio: 4 };
-    case "1152x864":
-      return { widthRatio: 4, heightRatio: 3 };
-    case "1344x768":
-    case "1440x720":
-      return { widthRatio: 2, heightRatio: 1 };
-    default:
-      return { widthRatio: 1, heightRatio: 1 };
-  }
+/** Размер для Images API: строка "ШИРИНАxВЫСОТА" вида "1024x1024".
+ *  Достоверно работает 1024x1024; остальные размеры передаём как есть,
+ *  а если Яндекс отклонит — yandexArt повторит с квадратом (см. ниже). */
+function normalizeArtSize(size: string): string {
+  const s = String(size ?? "").trim().toLowerCase();
+  return /^\d{3,4}x\d{3,4}$/.test(s) ? s : "1024x1024";
 }
 
 interface YandexArtOptions {
   prompt: string;
   size: string;
-  /** Бюджет на ожидание результата, мс (обычно 15–45 с). */
+  /** Бюджет на генерацию, мс — он же таймаут синхронного запроса (обычно 15–45 с). */
   budgetMs?: number;
 }
 
 /**
- * Генерация изображения YandexART.
- * Асинхронная схема: POST → {id} → опрашиваем операцию до done:true.
- * Возвращает base64 изображения (jpeg).
+ * Генерация изображения YandexART (новый синхронный Images API).
+ * POST /v1/images/generations → ответ сразу содержит b64_json картинки.
+ * Возвращает base64 изображения (jpeg) — как раньше, но без опроса операций.
  */
 export async function yandexArt(
   cfg: YandexConfig,
   opts: YandexArtOptions
 ): Promise<string> {
-  // У промпта YandexART жёсткий лимит длины — ужимаем до безопасных ~490 символов.
+  // У промпта модели жёсткий лимит длины — ужимаем до безопасных ~490 символов.
   const prompt = opts.prompt.length > 490 ? `${opts.prompt.slice(0, 489)}…` : opts.prompt;
-  const ratio = aspectRatioForSize(opts.size);
+  const model = artModelUri(cfg.folderId);
+  const url = `${AI_API_BASE}/v1/images/generations`;
   const budgetMs = Math.min(Math.max(opts.budgetMs ?? 40_000, 12_000), 55_000);
-  const startedAt = Date.now();
+  const size = normalizeArtSize(opts.size);
 
-  const { status, json, raw } = await postJson(
-    `${LLM_BASE}/foundationModels/v1/imageGenerationAsync`,
-    cfg.apiKey,
-    {
-      modelUri: artModelUri(cfg.folderId),
-      messages: [{ weight: 1, text: prompt }],
-      generationOptions: {
-        mimeType: "image/jpeg",
-        aspectRatio: ratio,
-      },
-    },
-    20_000
-  );
-  if (status !== 200)
-    throw yandexApiError(
-      status,
-      raw.slice(0, 300),
-      "генерации изображения",
-      `${LLM_BASE}/foundationModels/v1/imageGenerationAsync`,
-      artModelUri(cfg.folderId)
-    );
-
-  const opId = (json as { id?: string })?.id;
-  if (!opId) {
-    throw new Error(
-      `Yandex не вернул идентификатор операции генерации. Детали: ${raw.slice(0, 200)}`
-    );
-  }
-
-  // Опрос операции: раз в 2.5 с, пока не выйдет бюджет
-  while (Date.now() - startedAt < budgetMs) {
-    await new Promise((r) => setTimeout(r, 2500));
-    const left = budgetMs - (Date.now() - startedAt);
-    if (left <= 0) break;
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), Math.min(left, 10_000));
-    let opJson: {
-      done?: boolean;
-      response?: { image?: unknown };
-      error?: { code?: number; message?: string };
-    };
-    try {
-      const opRes = await fetch(`${OPS_BASE}/operations/${opId}`, {
-        headers: { Authorization: `Api-Key ${cfg.apiKey}` },
-        signal: ctrl.signal,
-      });
-      opJson = (await opRes.json()) as typeof opJson;
-    } catch (e) {
-      if (isAbort(e)) break; // бюджет исчерпан
-      continue; // сетевой сбой опроса — пробуем ещё раз, пока есть время
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (opJson.error?.message) {
-      throw new Error(`YandexART вернул ошибку генерации: ${opJson.error.message}`);
-    }
-    if (opJson.done && opJson.response) {
-      const b64 = String(opJson.response.image ?? "");
-      if (!b64) {
-        throw new Error("YandexART закончил операцию, но не вернул изображение.");
+  const attempt = async (sz: string) => {
+    const { status, json, raw } = await postJson(
+      url,
+      cfg.apiKey,
+      { model, prompt, size: sz },
+      budgetMs,
+      {
+        auth: "bearer",
+        extraHeaders: { "OpenAI-Project": cfg.folderId },
       }
-      return b64;
+    );
+    return { status, json, raw };
+  };
+
+  let r: Awaited<ReturnType<typeof attempt>>;
+  try {
+    r = await attempt(size);
+
+    // Яндекс отклонил размер (не поддерживается моделью) — повторяем квадратом,
+    // чтобы пользователь всё равно получил картинку.
+    if (r.status === 400 && size !== "1024x1024") {
+      r = await attempt("1024x1024");
     }
+  } catch (e) {
+    if (isAbort(e)) {
+      // Бюджет исчерпан (генерация синхронная — таймаут запроса и есть бюджет).
+      throw new Error(
+        "YandexART не успел нарисовать портрет в отведённое время (на Vercel функция ограничена 60 с). Попробуйте ещё раз или включите «Быстрый режим» — обычно вторая попытка проходит быстрее."
+      );
+    }
+    throw e;
   }
 
-  throw new Error(
-    "YandexART не успел нарисовать портрет в отведённое время (на Vercel функция ограничена 60 с). Попробуйте ещё раз или включите «Быстрый режим» — обычно вторая попытка проходит быстрее."
-  );
+  if (r.status !== 200) {
+    throw yandexApiError(
+      r.status,
+      r.raw.slice(0, 300),
+      "генерации изображения",
+      url,
+      model
+    );
+  }
+
+  const data = (r.json as { data?: Array<{ b64_json?: string }> })?.data;
+  const b64 = String(data?.[0]?.b64_json ?? "");
+  if (!b64) {
+    throw new Error(
+      `YandexART не вернул изображение в ответе. Детали: ${r.raw.slice(0, 200)}`
+    );
+  }
+  return b64;
 }
+
+
