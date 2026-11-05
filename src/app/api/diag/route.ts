@@ -1,13 +1,21 @@
 /**
- * ВРЕМЕННЫЙ диагностический маршрут v2: /api/diag?diag=1
+ * ВРЕМЕННЫЙ диагностический маршрут v3: /api/diag?diag=1
  *
- * Отличие от v1: генерация картинок проверяется на ДВУХ хостах Яндекса:
- *  - artPing        — старый хост  llm.api.cloud.yandex.net  (давал 403);
- *  - artPingNewHost — новый хост   ai.api.cloud.yandex.net   (его указывают
- *    актуальные доки AI Studio). Если новый хост примет запрос — чиним
- *    приложение одной строкой, без поддержки.
+ * Расшифровка «Посмотреть код» из Playground показала:
+ *  - модель переименована: aliceai-image-art-3.0/latest (не yandex-art!);
+ *  - эндпоинт OpenAI-совместимый, СИНХРОННЫЙ:
+ *      POST https://ai.api.cloud.yandex.net/v1/images/generations
+ *      Authorization: Bearer <api-key>, заголовок OpenAI-Project: <folder>
+ *      тело: { model: "art://<folder>/aliceai-image-art-3.0/latest",
+ *              prompt: "...", size: "1024x1024" }
+ *      ответ сразу: { data: [ { b64_json: "..." } ] }
  *
- * Остальное как в v1: folderId, префикс ключа, textPing.
+ * Проверяем две связки (параллельно):
+ *  - artOurFolder:  наш каталог (b1g10…)
+ *  - artSampleFolder: каталог из код-примера Playground (b1g8kmq3tbqf838vfus3)
+ * Если обе вернут 401 — дополнительно пробуем заголовок Api-Key вместо Bearer.
+ *
+ * Успех = status 200 (картинка реально сгенерировалась, ~1–2 ₽).
  * Без параметра ?diag=1 ничего не проверяет. После починки файл удалить.
  */
 
@@ -18,36 +26,39 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const LLM_BASE = "https://llm.api.cloud.yandex.net";
-const AI_API_BASE = "https://ai.api.cloud.yandex.net";
+const AI_BASE = "https://ai.api.cloud.yandex.net/v1/images/generations";
+const MODEL = "aliceai-image-art-3.0/latest";
+const SAMPLE_FOLDER = "b1g8kmq3tbqf838vfus3";
 
-/** Один запрос на генерацию по указанному хосту: статус и кусок ответа как есть. */
-async function artPingOnce(
-  base: string,
+type ArtResult = { status: number; raw: string };
+
+/** Синхронный запрос картинки через OpenAI-совместимый эндпоинт. */
+async function artOnce(
   apiKey: string,
-  folderId: string
-): Promise<{ status: number; raw: string }> {
+  folder: string,
+  auth: "bearer" | "apikey"
+): Promise<ArtResult> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  const timer = setTimeout(() => ctrl.abort(), 50_000);
   try {
-    const res = await fetch(`${base}/foundationModels/v1/imageGenerationAsync`, {
+    const res = await fetch(AI_BASE, {
       method: "POST",
       headers: {
-        Authorization: `Api-Key ${apiKey}`,
         "Content-Type": "application/json",
+        ...(auth === "bearer"
+          ? { Authorization: `Bearer ${apiKey}` }
+          : { Authorization: `Api-Key ${apiKey}` }),
+        "OpenAI-Project": folder,
       },
       body: JSON.stringify({
-        modelUri: `art://${folderId}/yandex-art/latest`,
-        messages: [{ weight: 1, text: "маленький красный квадрат на белом фоне" }],
-        generationOptions: {
-          mimeType: "image/jpeg",
-          aspectRatio: { widthRatio: 1, heightRatio: 1 },
-        },
+        model: `art://${folder}/${MODEL}`,
+        prompt: "маленький красный квадрат на белом фоне",
+        size: "1024x1024",
       }),
       signal: ctrl.signal,
     });
     const raw = await res.text();
-    return { status: res.status, raw: raw.slice(0, 600) };
+    return { status: res.status, raw: raw.slice(0, 300) };
   } catch (e) {
     return { status: 0, raw: e instanceof Error ? e.message : String(e) };
   } finally {
@@ -55,28 +66,23 @@ async function artPingOnce(
   }
 }
 
-/** Упаковка результата art-пинга в отчёт. */
-function artReport(host: string, r: { status: number; raw: string }) {
+/** Упаковка результата в отчёт. */
+function artReport(tag: string, folder: string, r: ArtResult) {
   if (r.status === 200) {
-    let opId = "";
-    try {
-      opId = String((JSON.parse(r.raw) as { id?: string })?.id ?? "");
-    } catch {
-      // тело не JSON — оставим как есть
-    }
     return {
       ok: true,
-      host,
-      operationId: opId,
-      note: "Хост ПРИНЯЛ запрос на генерацию — право на YandexART есть (~1–2 ₽).",
+      folder,
+      status: 200,
+      rawStart: r.raw,
+      note: `${tag}: ЭНДПОИНТ ПРИНЯЛ И НАРИСОВАЛ — вот рабочий рецепт YandexART (~1–2 ₽).`,
     };
   }
   return {
     ok: false,
-    host,
+    folder,
     status: r.status,
     raw: r.raw,
-    note: "Дословный ответ хоста на генерацию картинок.",
+    note: `${tag}: дословный ответ эндпоинта.`,
   };
 }
 
@@ -84,7 +90,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   if (url.searchParams.get("diag") !== "1") {
     return NextResponse.json({
-      hint: "Это временный диагностический маршрут v2. Добавьте ?diag=1 к адресу.",
+      hint: "Временный диагностический маршрут v3. Добавьте ?diag=1 к адресу.",
     });
   }
 
@@ -99,7 +105,7 @@ export async function GET(request: Request) {
     yandexReport.apiKeyPrefix = `${cfg.apiKey.slice(0, 8)}…`;
     yandexReport.apiKeyLength = cfg.apiKey.length;
 
-    // 1) Текстовая модель — тем же ключом и каталогом
+    // 1) Текст — контроль, тем же ключом
     try {
       const reply = await yandexText(
         cfg,
@@ -114,13 +120,23 @@ export async function GET(request: Request) {
       };
     }
 
-    // 2) Генерация картинок — СРАЗУ НА ОБОИХ ХОСТАХ
-    const [artOld, artNew] = await Promise.all([
-      artPingOnce(LLM_BASE, cfg.apiKey, cfg.folderId),
-      artPingOnce(AI_API_BASE, cfg.apiKey, cfg.folderId),
+    // 2) Новый синхронный эндпоинт: наш каталог и каталог из примера
+    const [own, sample] = await Promise.all([
+      artOnce(cfg.apiKey, cfg.folderId, "bearer"),
+      artOnce(cfg.apiKey, SAMPLE_FOLDER, "bearer"),
     ]);
-    yandexReport.artPing = artReport("llm.api.cloud.yandex.net", artOld);
-    yandexReport.artPingNewHost = artReport("ai.api.cloud.yandex.net", artNew);
+    yandexReport.artOurFolder = artReport("Наш каталог", cfg.folderId, own);
+    yandexReport.artSampleFolder = artReport("Каталог из примера", SAMPLE_FOLDER, sample);
+
+    // 3) Если обе попытки упёрлись в аутентификацию — пробуем Api-Key-заголовок
+    if (own.status === 401 && sample.status === 401) {
+      const fallback = await artOnce(cfg.apiKey, cfg.folderId, "apikey");
+      yandexReport.artApiKeyAuth = {
+        ...artReport("Наш каталог, Api-Key-заголовок", cfg.folderId, fallback),
+        note:
+          "Проверка заголовка Api-Key вместо Bearer (если Bearer не принят).",
+      };
+    }
   } catch (e) {
     yandexReport.configError = e instanceof Error ? e.message : String(e);
   }
