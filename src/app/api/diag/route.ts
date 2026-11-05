@@ -1,18 +1,14 @@
 /**
- * ВРЕМЕННЫЙ диагностический маршрут: /api/diag?diag=1
+ * ВРЕМЕННЫЙ диагностический маршрут v2: /api/diag?diag=1
  *
- * Что делает: стучится к Яндексу ТЕМ ЖЕ ключом и ТЕМ ЖЕ каталогом,
- * что использует приложение, и показывает дословные ответы API:
- *  - folderId   — какой каталог реально подставлен из переменных Vercel;
- *  - textPing   — текстовая модель (gpt://<folder>/yandexgpt/latest);
- *  - artPing    — генерация картинок (art://<folder>/yandex-art/latest).
+ * Отличие от v1: генерация картинок проверяется на ДВУХ хостах Яндекса:
+ *  - artPing        — старый хост  llm.api.cloud.yandex.net  (давал 403);
+ *  - artPingNewHost — новый хост   ai.api.cloud.yandex.net   (его указывают
+ *    актуальные доки AI Studio). Если новый хост примет запрос — чиним
+ *    приложение одной строкой, без поддержки.
  *
- * artPing отправляет НАСТОЯЩИЙ запрос на генерацию (мы результат не ждём):
- * если Яндекс его принял — право на YandexART есть, операция дорисуется
- * сама и спишет ~1–2 ₽ за одну картинку. Это цена точного диагноза.
- *
- * Без параметра ?diag=1 маршрут ничего не проверяет (чтобы чужие не дёргали).
- * После починки файл можно удалить: src/app/api/diag/route.ts
+ * Остальное как в v1: folderId, префикс ключа, textPing.
+ * Без параметра ?diag=1 ничего не проверяет. После починки файл удалить.
  */
 
 import { NextResponse } from "next/server";
@@ -23,16 +19,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const LLM_BASE = "https://llm.api.cloud.yandex.net";
+const AI_API_BASE = "https://ai.api.cloud.yandex.net";
 
-/** Один запрос на генерацию: возвращаем HTTP-статус и кусок ответа как есть. */
+/** Один запрос на генерацию по указанному хосту: статус и кусок ответа как есть. */
 async function artPingOnce(
+  base: string,
   apiKey: string,
   folderId: string
 ): Promise<{ status: number; raw: string }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   try {
-    const res = await fetch(`${LLM_BASE}/foundationModels/v1/imageGenerationAsync`, {
+    const res = await fetch(`${base}/foundationModels/v1/imageGenerationAsync`, {
       method: "POST",
       headers: {
         Authorization: `Api-Key ${apiKey}`,
@@ -57,11 +55,36 @@ async function artPingOnce(
   }
 }
 
+/** Упаковка результата art-пинга в отчёт. */
+function artReport(host: string, r: { status: number; raw: string }) {
+  if (r.status === 200) {
+    let opId = "";
+    try {
+      opId = String((JSON.parse(r.raw) as { id?: string })?.id ?? "");
+    } catch {
+      // тело не JSON — оставим как есть
+    }
+    return {
+      ok: true,
+      host,
+      operationId: opId,
+      note: "Хост ПРИНЯЛ запрос на генерацию — право на YandexART есть (~1–2 ₽).",
+    };
+  }
+  return {
+    ok: false,
+    host,
+    status: r.status,
+    raw: r.raw,
+    note: "Дословный ответ хоста на генерацию картинок.",
+  };
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   if (url.searchParams.get("diag") !== "1") {
     return NextResponse.json({
-      hint: "Это временный диагностический маршрут. Добавьте ?diag=1 к адресу.",
+      hint: "Это временный диагностический маршрут v2. Добавьте ?diag=1 к адресу.",
     });
   }
 
@@ -91,28 +114,13 @@ export async function GET(request: Request) {
       };
     }
 
-    // 2) Генерация картинок — принимается ли запрос (до рисования)
-    const art = await artPingOnce(cfg.apiKey, cfg.folderId);
-    if (art.status === 200) {
-      let opId = "";
-      try {
-        opId = String((JSON.parse(art.raw) as { id?: string })?.id ?? "");
-      } catch {
-        // тело не JSON — оставим как есть
-      }
-      yandexReport.artPing = {
-        ok: true,
-        operationId: opId,
-        note: "Яндекс ПРИНЯЛ запрос на генерацию — право на YandexART есть. Картинка дорисуется сама (~1–2 ₽), ждать не нужно.",
-      };
-    } else {
-      yandexReport.artPing = {
-        ok: false,
-        status: art.status,
-        raw: art.raw,
-        note: "Дословный ответ Яндекса на генерацию картинок.",
-      };
-    }
+    // 2) Генерация картинок — СРАЗУ НА ОБОИХ ХОСТАХ
+    const [artOld, artNew] = await Promise.all([
+      artPingOnce(LLM_BASE, cfg.apiKey, cfg.folderId),
+      artPingOnce(AI_API_BASE, cfg.apiKey, cfg.folderId),
+    ]);
+    yandexReport.artPing = artReport("llm.api.cloud.yandex.net", artOld);
+    yandexReport.artPingNewHost = artReport("ai.api.cloud.yandex.net", artNew);
   } catch (e) {
     yandexReport.configError = e instanceof Error ? e.message : String(e);
   }
@@ -120,3 +128,4 @@ export async function GET(request: Request) {
 
   return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } });
 }
+
