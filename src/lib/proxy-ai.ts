@@ -15,12 +15,18 @@
  *                       (обязательна для генерации). Рекомендации по каталогу
  *                       ProxyAPI: bytedance-seed/seedream-5-0-flash
  *                       (~1,5–2 ₽/правка) — основной;
- *                       google/gemini-3.1-flash-lite-image — Nano Banana 2 Lite
- *                       (~12 ₽/правка, максимум точности лица);
- *                       openai/gpt-image-2.5-flare — модель из примера доков;
+ *                       google/gemini-nano-banana-2.1 — Nano Banana
+ *                       (~10 ₽/правка, максимум точности лица);
+ *                       openai/gpt-image-2.5-flare — модель из примера доков
+ *                       (~4 ₽/правка). Точные имена и цены — в каталоге
+ *                       proxyapi.ru/models (каталог обновляется).
  *  PROXY_VISION_MODEL — vision-модель (разбор референса + словесный портрет +
- *                       QA-аудит); для ProxyAPI — qwen/qwen3.7-flash
- *                       (7,58/21,05 ₽ за 1М токенов, ~0,03 ₽ за разбор);
+ *                       QA-аудит); для ProxyAPI — qwen/qwen3.8-omni-flash
+ *                       (21,05/63,16 ₽ за 1М токенов, ~0,05 ₽ за разбор).
+ *                       Имена моделей сверяются с каталогом proxyapi.ru —
+ *                       каталог обновляется, старые имена уходят (как
+ *                       qwen3.7-flash); если пришёл 404 — взять точное
+ *                       текущее имя из каталога.
  *  PROXY_TEXT_MODEL   — текстовая модель для пинга (по умолчанию = vision);
  *  PROXY_EDIT_STYLE   — как править фото: "edits" | "chat" | "google" | "auto"
  *                       (по умолчанию auto — порядок ниже).
@@ -54,7 +60,9 @@ export function ensureProxyConfig(): ProxyConfig {
     .trim()
     .replace(/\/+$/, "");
   const editModel = String(process.env.PROXY_EDIT_MODEL ?? "").trim();
-  const visionModel = String(process.env.PROXY_VISION_MODEL ?? "").trim() || "qwen/qwen3.7-flash";
+  // Дефолт по каталогу ProxyAPI (проверен в ноябре 2026). Если придёт 404 —
+  // имя модели устарело: взять точное из каталога proxyapi.ru/models.
+  const visionModel = String(process.env.PROXY_VISION_MODEL ?? "").trim() || "qwen/qwen3.8-omni-flash";
   const textModel = String(process.env.PROXY_TEXT_MODEL ?? "").trim() || visionModel;
   const styleRaw = String(process.env.PROXY_EDIT_STYLE ?? "").trim().toLowerCase();
   const editStyle: ProxyConfig["editStyle"] =

@@ -209,7 +209,7 @@ export async function GET(req: NextRequest) {
 
   const activeEngineNote =
     provider === "proxy"
-      ? `Активен движок прокси: модель-редактор ${process.env.PROXY_EDIT_MODEL?.trim() || "(не задана PROXY_EDIT_MODEL)"} правит фото с сохранением лица, vision — ${process.env.PROXY_VISION_MODEL?.trim() || "qwen/qwen3.7-flash"}. Оплата в рублях в кабинете прокси.`
+      ? `Активен движок прокси: модель-редактор ${process.env.PROXY_EDIT_MODEL?.trim() || "(не задана PROXY_EDIT_MODEL)"} правит фото с сохранением лица, vision — ${process.env.PROXY_VISION_MODEL?.trim() || "qwen/qwen3.8-omni-flash"}. Оплата в рублях в кабинете прокси.`
       : provider === "yandex"
       ? "Активен движок Яндекс: YandexGPT понимает фото и текст, YandexART рисует портрет. Оплата в рублях (платёжный аккаунт Yandex Cloud)."
       : "Активен движок Z.AI. Чтобы переключиться на Яндекс (оплата в рублях), задайте YC_API_KEY и YC_FOLDER_ID; на прокси — PROXY_API_KEY, PROXY_BASE_URL и PROXY_EDIT_MODEL.";

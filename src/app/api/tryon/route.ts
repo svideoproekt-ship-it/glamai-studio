@@ -16,9 +16,11 @@ import { visionChatAny } from "@/lib/vision";
 import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { generateMakeupImage, sizeForGlmImage, type ImagePipeline } from "@/lib/zai-image";
 
-// Vercel Hobby ограничивает функцию 60 с — задаём ровно лимит плана,
-// чтобы деплой/вызов не падал из-за завышенного maxDuration.
-export const maxDuration = 60;
+// Vercel с Fluid compute (по умолчанию для новых проектов) даёт на Hobby план
+// до 300 c. Задаём 120 c: этого хватает на полный QA-цикл (правка + аудит +
+// корректирующий ретрай + второй аудит) даже в референс-режиме, где раньше
+// при лимите 60 c аудит почти никогда не успевал стартовать.
+export const maxDuration = 120;
 
 // Соотношение сторон (ширина/высота) → ближайший поддерживаемый размер генерации
 type GenSize = "1024x1024" | "768x1344" | "864x1152" | "1344x768" | "1152x864" | "1440x720" | "720x1440";
@@ -66,10 +68,10 @@ function friendlyError(err: unknown): string {
     low.includes("403") ||
     low.includes("authenticat")
   ) {
-    return "ИИ-сервис не принял ключ доступа. Если приложение развёрнуто на Vercel, добавьте переменные окружения ZAI_API_KEY и ZAI_BASE_URL (Settings → Environment Variables) и сделайте redeploy. Проверить ключ можно, открыв адрес <адрес-сайта>/api/health?ping=1. Инструкция — в README-DEPLOY-RU.md, раздел «Если генерация отказывает».";
+    return "ИИ-сервис не принял ключ доступа. Если приложение развёрнуто на Vercel, проверьте переменные окружения (Settings → Environment Variables) и сделайте redeploy. Проверить ключ можно, открыв адрес <адрес-сайта>/api/health?ping=1. Инструкция — в README-DEPLOY-RU.md.";
   }
   if (low.includes("status 404") || (/\b404\b/.test(low) && low.includes("api request"))) {
-    return "ИИ-сервис не нашёл запрошенную операцию (404). Версия 1.3.0 сама переключается на резервный режим, поэтому такая ошибка больше не должна появляться. Обновите код на GitHub (файлы версии 1.3.0) и сделайте Redeploy. Если ошибка осталась — пришлите её текст целиком.";
+    return "ИИ-сервис не нашёл запрошенную операцию (404). Приложение само переключится на запасной режим; если это повторяется, обновите код на GitHub до последней версии и сделайте Redeploy. Если ошибка осталась — пришлите её текст целиком.";
   }
   if (low.includes("timeout") || low.includes("timed out") || low.includes("aborted") || low.includes("econnreset") || low.includes("fetch failed")) {
     return "ИИ-сервис не успел ответить (таймаут). Попробуйте ещё раз — обычно вторая попытка проходит.";
@@ -220,10 +222,16 @@ async function auditResult(
   requested: string
 ): Promise<string> {
   try {
-    const text = await visionChatAny({
-      text: buildAuditPrompt(requested),
-      images: [originalDataUrl, resultDataUrl],
-    });
+    // Аудит — вспомогательный шаг: ограничиваем его 20 c (мягкий таймаут),
+    // чтобы он не съедал бюджет ретрая. Не успел — считаем результат приемлемым.
+    const text = await raceWithSoftTimeout(
+      visionChatAny({
+        text: buildAuditPrompt(requested),
+        images: [originalDataUrl, resultDataUrl],
+      }),
+      20_000
+    );
+    if (!text) return "none";
     const issues = /ISSUES:\s*(.+)/i.exec(text)?.[1]?.trim() ?? "none";
     return /none/i.test(issues) ? "none" : issues.slice(0, 600);
   } catch {
@@ -233,14 +241,17 @@ async function auditResult(
 }
 
 export async function POST(req: NextRequest) {
-  // Бюджет времени: на Vercel Hobby функция ограничена ~60 с — оставляем запас.
-  // Худший случай: ретрай стартует на 30-й секунде + 25 c = 55 c < 60 c.
-  // Быстрый случай: edit 12с + аудит 8с + ретрай 25с + аудит 9с = 54 c.
+  // Бюджет времени: maxDuration = 120 c (Fluid compute на Hobby даёт до 300 c).
+  // Худший случай укладывается так: правка до 60 c (старт не позже ~55-й),
+  // аудит 1 — до 70-й секунды (мягкий таймаут 20 c), ретрай — старт до 72-й
+  // секунды и до 45 c, второй аудит — старт до 95-й и до 20 c ⇒ всё
+  // завершается к ~115 c < 120 c. Если правка завершилась позже 70 c —
+  // возвращаем её результат без аудита (лучше быстрый результат, чем обрыв).
   const startedAt = Date.now();
-  const AUDIT_LIMIT_MS = 30_000; // аудит 1 запускаем, только если результат готов к этому моменту
-  const RETRY_LIMIT_MS = 30_000; // ретрай стартует не позже 30-й секунды (30 + 25 = 55 < 60)
-  const RETRY_TIMEOUT_MS = 25_000;
-  const AUDIT2_LIMIT_MS = 46_000; // второй аудит — иначе доверяем корректирующему промпту
+  const AUDIT_LIMIT_MS = 70_000; // аудит 1 запускаем, только если результат готов к этому моменту
+  const RETRY_LIMIT_MS = 72_000; // ретрай стартует не позже 72-й секунды (72 + 45 = 117 < 120)
+  const RETRY_TIMEOUT_MS = 45_000;
+  const AUDIT2_LIMIT_MS = 95_000; // второй аудит — иначе доверяем корректирующему промпту
 
   try {
     const body = (await req.json()) as TryonBody;
@@ -304,7 +315,7 @@ export async function POST(req: NextRequest) {
     // возвращаем понятную ошибку, пока бюджет ещё позволяет.
     // generateMakeupImage сам выбирает способ: правка фото (внутренний шлюз) или
     // портрет по описанию внешности (публичный api.z.ai, где правки нет).
-    const EDIT_TIMEOUT_MS = 48_000;
+    const EDIT_TIMEOUT_MS = 60_000;
     let genResult: Awaited<ReturnType<typeof generateMakeupImage>>;
     try {
       genResult = await callWithRateLimitRetry(
@@ -318,7 +329,7 @@ export async function POST(req: NextRequest) {
             EDIT_TIMEOUT_MS,
             () => new Error("edit timeout")
           ),
-        { startedAt, deadlineMs: 55_000, label: "edit" }
+        { startedAt, deadlineMs: 110_000, label: "edit" }
       );
     } catch (editErr) {
       console.error("[tryon] edit failed:", editErr instanceof Error ? editErr.message : editErr);
@@ -367,7 +378,7 @@ export async function POST(req: NextRequest) {
                   modelPhoto,
                   size,
                 }),
-              { startedAt, deadlineMs: 55_000, label: "qa retry" }
+              { startedAt, deadlineMs: 110_000, label: "qa retry" }
             ),
             RETRY_TIMEOUT_MS
           );

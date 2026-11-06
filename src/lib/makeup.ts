@@ -496,7 +496,7 @@ export function buildPrompt(input: PromptBuildInput): string {
   }
 
   parts.push(
-    "Output: a realistic photo of the same person wearing this makeup — no retouching beyond the makeup itself."
+    "Output: a realistic photo of the same person wearing this makeup — no retouching beyond the makeup itself: no skin smoothing or beautification filters, no reshaping of face or body, no added text, logos or watermarks."
   );
 
   return parts.join(" ");
@@ -567,7 +567,7 @@ export function buildReferenceEditPrompt(recipe: string, comment: string): strin
   }
 
   parts.push(
-    "Output: a realistic photo of the same person wearing this makeup — no retouching beyond the makeup itself."
+    "Output: a realistic photo of the same person wearing this makeup — no retouching beyond the makeup itself: no skin smoothing or beautification filters, no reshaping of face or body, no added text, logos or watermarks."
   );
 
   return parts.join(" ");

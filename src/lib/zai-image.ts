@@ -285,7 +285,9 @@ async function proxyMakeupImage(req: MakeupImageRequest): Promise<MakeupImageRes
     prompt: req.makeupPrompt,
     imageDataUrl: req.modelPhoto,
     size: req.size,
-    timeoutMs: 40_000,
+    // 55 c на попытку пути: Seedream и Nano Banana иногда отвечают дольше 40 c,
+    // а функция на Vercel теперь держит 120 c (Fluid compute) — даём помедлить.
+    timeoutMs: 55_000,
   });
   return { base64, pipeline: "edit" };
 }
