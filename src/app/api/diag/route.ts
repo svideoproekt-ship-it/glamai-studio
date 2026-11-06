@@ -1,147 +1,172 @@
-/**
- * ВРЕМЕННЫЙ диагностический маршрут v3: /api/diag?diag=1
- *
- * Расшифровка «Посмотреть код» из Playground показала:
- *  - модель переименована: aliceai-image-art-3.0/latest (не yandex-art!);
- *  - эндпоинт OpenAI-совместимый, СИНХРОННЫЙ:
- *      POST https://ai.api.cloud.yandex.net/v1/images/generations
- *      Authorization: Bearer <api-key>, заголовок OpenAI-Project: <folder>
- *      тело: { model: "art://<folder>/aliceai-image-art-3.0/latest",
- *              prompt: "...", size: "1024x1024" }
- *      ответ сразу: { data: [ { b64_json: "..." } ] }
- *
- * Проверяем две связки (параллельно):
- *  - artOurFolder:  наш каталог (b1g10…)
- *  - artSampleFolder: каталог из код-примера Playground (b1g8kmq3tbqf838vfus3)
- * Если обе вернут 401 — дополнительно пробуем заголовок Api-Key вместо Bearer.
- *
- * Успех = status 200 (картинка реально сгенерировалась, ~1–2 ₽).
- * Без параметра ?diag=1 ничего не проверяет. После починки файл удалить.
- */
+import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
+import {
+  ensureProxyConfig,
+  proxyText,
+  proxyVision,
+  proxyEditImage,
+  type ProxyConfig,
+} from "@/lib/proxy-ai";
 
-import { NextResponse } from "next/server";
-import { ensureYandexConfig, yandexText } from "@/lib/yandex-ai";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const AI_BASE = "https://ai.api.cloud.yandex.net/v1/images/generations";
-const MODEL = "aliceai-image-art-3.0/latest";
-const SAMPLE_FOLDER = "b1g8kmq3tbqf838vfus3";
+/**
+ * Временный диагностический маршрут для движка «прокси» (v1.4.3).
+ *
+ * БЕЗ ?diag=1 ничего не проверяет (чтобы не списывать деньги случайно).
+ * С ?diag=1 — четыре проверки параллельно:
+ *   1) textPing  — текстовая модель (ключ принят?);
+ *   2) visionPing — vision-модель смотрит тестовую картинку;
+ *   3) editsTest — правка фото через /images/edits (OpenAI-формат);
+ *   4) chatTest  — правка фото через /chat/completions (Nano Banana и др.).
+ * С ?diag=all — дополнительно googleTest (generateContent, Google-формат).
+ *
+ * Тестовая картинка — красный квадрат 64×64, промпт «перекрась в синий».
+ * Каждая успешная правка стоит ~1–5 ₽ по тарифам прокси.
+ */
 
-type ArtResult = { status: number; raw: string };
+interface TestResult {
+  ok: boolean;
+  status?: number;
+  rawStart?: string;
+  bytes?: number;
+  detail: string;
+}
 
-/** Синхронный запрос картинки через OpenAI-совместимый эндпоинт. */
-async function artOnce(
-  apiKey: string,
-  folder: string,
-  auth: "bearer" | "apikey"
-): Promise<ArtResult> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 50_000);
+async function makeTestSquare(): Promise<string> {
+  const buf = await sharp({
+    create: { width: 64, height: 64, channels: 3, background: { r: 200, g: 30, b: 30 } },
+  })
+    .png()
+    .toBuffer();
+  return `data:image/png;base64,${buf.toString("base64")}`;
+}
+
+function describeError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (/aborted|AbortError|timeout/i.test(raw)) return "Таймаут: модель не успела ответить за 45 с.";
+  return raw.slice(0, 300);
+}
+
+async function runTextEdit(cfg: ProxyConfig): Promise<TestResult> {
   try {
-    const res = await fetch(AI_BASE, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(auth === "bearer"
-          ? { Authorization: `Bearer ${apiKey}` }
-          : { Authorization: `Api-Key ${apiKey}` }),
-        "OpenAI-Project": folder,
-      },
-      body: JSON.stringify({
-        model: `art://${folder}/${MODEL}`,
-        prompt: "маленький красный квадрат на белом фоне",
-        size: "1024x1024",
-      }),
-      signal: ctrl.signal,
+    const reply = await proxyText(cfg, "Ответь одним словом: Функционирует.", {
+      maxTokens: 20,
+      timeoutMs: 30_000,
     });
-    const raw = await res.text();
-    return { status: res.status, raw: raw.slice(0, 300) };
+    return { ok: true, detail: `Текстовая модель отвечает: «${reply.slice(0, 40)}»` };
   } catch (e) {
-    return { status: 0, raw: e instanceof Error ? e.message : String(e) };
-  } finally {
-    clearTimeout(timer);
+    return { ok: false, detail: describeError(e) };
   }
 }
 
-/** Упаковка результата в отчёт. */
-function artReport(tag: string, folder: string, r: ArtResult) {
-  if (r.status === 200) {
+async function runVisionTest(cfg: ProxyConfig, square: string): Promise<TestResult> {
+  try {
+    const reply = await proxyVision(cfg, {
+      text: "Какого цвета квадрат на картинке? Ответь одним словом.",
+      images: [square],
+      timeoutMs: 35_000,
+    });
+    return { ok: true, detail: `Vision отвечает: «${reply.slice(0, 40)}»` };
+  } catch (e) {
+    return { ok: false, detail: describeError(e) };
+  }
+}
+
+async function runEditTest(
+  cfg: ProxyConfig,
+  square: string,
+  style: "edits" | "chat" | "google"
+): Promise<TestResult> {
+  try {
+    const b64 = await proxyEditImage(cfg, {
+      prompt: "Перекрась красный квадрат в синий цвет. Фон оставь белым. Ничего кроме цвета не меняй.",
+      imageDataUrl: square,
+      size: "1024x1024",
+      timeoutMs: 45_000,
+      style,
+    });
+    const bytes = Math.round((b64.length * 3) / 4);
     return {
       ok: true,
-      folder,
-      status: 200,
-      rawStart: r.raw,
-      note: `${tag}: ЭНДПОИНТ ПРИНЯЛ И НАРИСОВАЛ — вот рабочий рецепт YandexART (~1–2 ₽).`,
+      bytes,
+      detail: `Правка (${style}) вернула картинку ~${Math.round(bytes / 1024)} КБ.`,
+    };
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    const m = /HTTP (\d{3})/.exec(raw);
+    return {
+      ok: false,
+      status: m ? Number(m[1]) : undefined,
+      rawStart: raw.slice(0, 300),
+      detail: describeError(e),
     };
   }
-  return {
-    ok: false,
-    folder,
-    status: r.status,
-    raw: r.raw,
-    note: `${tag}: дословный ответ эндпоинта.`,
-  };
 }
 
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  if (url.searchParams.get("diag") !== "1") {
+export async function GET(req: NextRequest) {
+  const mode = req.nextUrl.searchParams.get("diag");
+  if (mode !== "1" && mode !== "all") {
     return NextResponse.json({
-      hint: "Временный диагностический маршрут v3. Добавьте ?diag=1 к адресу.",
+      note: "Диагностика выключена. Откройте /api/diag?diag=1 — она проверит текст, vision и правку фото на вашем прокси (успешные правки списываются по тарифу прокси, ~2–10 ₽ за тест). ?diag=all — ещё и Google-формат.",
     });
   }
 
-  const report: Record<string, unknown> = { time: new Date().toISOString() };
-  report.provider =
-    String(process.env.AI_PROVIDER ?? "").trim() || "(авто-выбор движка)";
+  const withGoogle = mode === "all";
 
-  const yandexReport: Record<string, unknown> = {};
+  let cfg: ProxyConfig;
   try {
-    const cfg = ensureYandexConfig();
-    yandexReport.folderId = cfg.folderId;
-    yandexReport.apiKeyPrefix = `${cfg.apiKey.slice(0, 8)}…`;
-    yandexReport.apiKeyLength = cfg.apiKey.length;
-
-    // 1) Текст — контроль, тем же ключом
-    try {
-      const reply = await yandexText(
-        cfg,
-        "Ответь одним словом: работает?",
-        { maxTokens: 20, timeoutMs: 15_000 }
-      );
-      yandexReport.textPing = { ok: true, reply: reply.slice(0, 120) };
-    } catch (e) {
-      yandexReport.textPing = {
-        ok: false,
-        error: (e instanceof Error ? e.message : String(e)).slice(0, 400),
-      };
-    }
-
-    // 2) Новый синхронный эндпоинт: наш каталог и каталог из примера
-    const [own, sample] = await Promise.all([
-      artOnce(cfg.apiKey, cfg.folderId, "bearer"),
-      artOnce(cfg.apiKey, SAMPLE_FOLDER, "bearer"),
-    ]);
-    yandexReport.artOurFolder = artReport("Наш каталог", cfg.folderId, own);
-    yandexReport.artSampleFolder = artReport("Каталог из примера", SAMPLE_FOLDER, sample);
-
-    // 3) Если обе попытки упёрлись в аутентификацию — пробуем Api-Key-заголовок
-    if (own.status === 401 && sample.status === 401) {
-      const fallback = await artOnce(cfg.apiKey, cfg.folderId, "apikey");
-      yandexReport.artApiKeyAuth = {
-        ...artReport("Наш каталог, Api-Key-заголовок", cfg.folderId, fallback),
-        note:
-          "Проверка заголовка Api-Key вместо Bearer (если Bearer не принят).",
-      };
-    }
+    cfg = ensureProxyConfig();
   } catch (e) {
-    yandexReport.configError = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      {
+        provider: "proxy",
+        error: e instanceof Error ? e.message : String(e),
+        note: "Сначала задайте PROXY_API_KEY и PROXY_BASE_URL в Vercel (Settings → Environment Variables) и сделайте Redeploy.",
+      },
+      { status: 503 }
+    );
   }
-  report.yandex = yandexReport;
 
-  return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } });
+  const square = await makeTestSquare();
+  const host = new URL(cfg.baseUrl).host;
+
+  const tasks: Record<string, Promise<TestResult>> = {
+    textPing: runTextEdit(cfg),
+    visionPing: runVisionTest(cfg, square),
+    editsTest: runEditTest(cfg, square, "edits"),
+    chatTest: runEditTest(cfg, square, "chat"),
+  };
+  if (withGoogle) tasks.googleTest = runEditTest(cfg, square, "google");
+
+  const names = Object.keys(tasks);
+  const settled = await Promise.allSettled(names.map((n) => tasks[n]));
+  const results: Record<string, TestResult> = {};
+  names.forEach((n, i) => {
+    results[n] =
+      settled[i].status === "fulfilled"
+        ? (settled[i] as PromiseFulfilledResult<TestResult>).value
+        : { ok: false, detail: String((settled[i] as PromiseRejectedResult).reason).slice(0, 300) };
+  });
+
+  const anyEditOk = ["editsTest", "chatTest", "googleTest"].some(
+    (k) => k in results && results[k].ok
+  );
+
+  return NextResponse.json({
+    time: new Date().toISOString(),
+    provider: "proxy",
+    proxy: {
+      host,
+      baseUrl: cfg.baseUrl,
+      editModel: cfg.editModel || "НЕ ЗАДАНА (PROXY_EDIT_MODEL)",
+      visionModel: cfg.visionModel,
+      textModel: cfg.textModel,
+      editStyle: cfg.editStyle,
+    },
+    ...results,
+    verdict: anyEditOk
+      ? "Правка фото работает — этот движок подходит для GlamAI. Можно закрепить удачный способ переменной PROXY_EDIT_STYLE (edits/chat/google)."
+      : "Правка фото пока не удалась ни одним способом. Пришлите этот вывод целиком — подберём модель или поправим формат запроса.",
+  });
 }
-

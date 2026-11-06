@@ -3,6 +3,7 @@ import ZAI from "z-ai-web-dev-sdk";
 import { ensureZaiConfig, findZaiConfig } from "@/lib/zai-config";
 import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { ensureYandexConfig, yandexText } from "@/lib/yandex-ai";
+import { ensureProxyConfig, proxyText } from "@/lib/proxy-ai";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,8 @@ export const dynamic = "force-dynamic";
  *                          движку, чтобы проверить, что ключ принят (1–5 с).
  *
  * Активный движок выбирается так же, как в генерации:
- *   AI_PROVIDER=yandex|zai, иначе Яндекс при заданных YC_API_KEY + YC_FOLDER_ID,
- *   иначе Z.AI.
+ *   AI_PROVIDER=proxy|yandex|zai, иначе прокси при заданных PROXY_API_KEY + PROXY_BASE_URL,
+ *   иначе Яндекс при заданных YC_API_KEY + YC_FOLDER_ID, иначе Z.AI.
  *
  * Никаких секретов не возвращает: ключи маскируются, фото не принимает.
  */
@@ -39,7 +40,21 @@ export async function GET(req: NextRequest) {
     yKeySet && /вставьте|placeholder|your[_-]?key|пример/i.test(String(process.env.YC_API_KEY));
   const yKeyWhitespace = yKeySet && /\s/.test(String(process.env.YC_API_KEY));
 
-  ensureZaiConfig();
+  // ---------- Переменные прокси-шлюза ----------
+  const pKeySet = Boolean(process.env.PROXY_API_KEY?.trim());
+  const pUrlSet = Boolean(process.env.PROXY_BASE_URL?.trim());
+  const pEditSet = Boolean(process.env.PROXY_EDIT_MODEL?.trim());
+  const pPlaceholder =
+    pKeySet && /вставьте|placeholder|your[_-]?key|пример/i.test(String(process.env.PROXY_API_KEY));
+  const pKeyWhitespace = pKeySet && /\s/.test(String(process.env.PROXY_API_KEY));
+
+  // ensureZaiConfig может бросить, если ни переменных, ни конфиг-файла нет —
+  // но health — диагностический роут: он должен сообщать, а не падать 500.
+  try {
+    ensureZaiConfig();
+  } catch {
+    // нет конфига Z.AI — это нормально, если активен прокси/Яндекс
+  }
   const cfg = findZaiConfig();
 
   // Режим API: у публичного api.z.ai нет правки фото (/images/generations/edit) —
@@ -76,7 +91,7 @@ export async function GET(req: NextRequest) {
 
   const yandexCheck = {
     name: "Переменные Яндекса (YC_API_KEY, YC_FOLDER_ID)",
-    ok: (yKeySet && yFolderSet && !yPlaceholder) || provider === "zai",
+    ok: (yKeySet && yFolderSet && !yPlaceholder) || provider === "zai" || provider === "proxy",
     hint: yPlaceholder
       ? "В YC_API_KEY остался текст-заполнитель из .env.example — впишите настоящий API-ключ сервисного аккаунта (вид AQVN…)."
       : yKeySet && yFolderSet
@@ -85,14 +100,54 @@ export async function GET(req: NextRequest) {
         : "ОК"
       : provider === "yandex"
       ? `Активен движок Яндекс (AI_PROVIDER=yandex), но ${!yKeySet ? "YC_API_KEY" : "YC_FOLDER_ID"} не задан. Добавьте переменную в Vercel и сделайте Redeploy.`
-      : "Не заданы — движок Яндекс не используется, приложение работает через Z.AI. Чтобы включить Яндекс, задайте YC_API_KEY и YC_FOLDER_ID.",
+      : "Не заданы — движок Яндекс не используется. Чтобы включить Яндекс, задайте YC_API_KEY и YC_FOLDER_ID.",
   };
 
-  const checks = [...zaiChecks, yandexCheck];
+  const proxyCheck = {
+    name: "Переменные прокси-шлюза (PROXY_API_KEY, PROXY_BASE_URL, PROXY_EDIT_MODEL)",
+    ok: (pKeySet && pUrlSet && !pPlaceholder) || provider !== "proxy",
+    hint: pPlaceholder
+      ? "В PROXY_API_KEY остался текст-заполнитель — впишите настоящий ключ из кабинета прокси."
+      : pKeySet && pUrlSet
+      ? pKeyWhitespace
+        ? "Заданы, но в PROXY_API_KEY есть пробел или перенос строки — пересохраните ключ одной строкой и сделайте Redeploy."
+        : pEditSet
+        ? "ОК"
+        : "Ключ и адрес заданы, но PROXY_EDIT_MODEL не задана — генерация потребует её и остановится с понятной ошибкой. Добавьте имя модели-редактора из перечня прокси."
+      : provider === "proxy"
+      ? `Активен движок прокси (AI_PROVIDER=proxy), но ${!pKeySet ? "PROXY_API_KEY" : "PROXY_BASE_URL"} не задан. Добавьте переменные в Vercel и сделайте Redeploy.`
+      : "Не заданы — движок прокси не используется. Чтобы включить: PROXY_API_KEY, PROXY_BASE_URL (обычно …/v1) и PROXY_EDIT_MODEL.",
+  };
+
+  const checks = [...zaiChecks, yandexCheck, proxyCheck];
 
   // ---------- Пинг активного движка ----------
   let aiPing: { ok: boolean; detail: string } | null = null;
   let ycPing: { ok: boolean; detail: string } | null = null;
+  let proxyPing: { ok: boolean; detail: string } | null = null;
+
+  if (wantsPing && provider === "proxy" && pKeySet && pUrlSet && !pPlaceholder) {
+    try {
+      const pcfg = ensureProxyConfig();
+      const reply = await proxyText(pcfg, "Ответь одним словом: OK", { maxTokens: 20 });
+      proxyPing = {
+        ok: true,
+        detail: `Прокси отвечает (${reply.slice(0, 30) || "пусто"}). Ключ принят. Модель-редактор: ${pcfg.editModel || "не задана PROXY_EDIT_MODEL!"}`,
+      };
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      proxyPing = {
+        ok: false,
+        detail: /401/.test(raw)
+          ? "Прокси отверг ключ (401). Проверьте PROXY_API_KEY — одной строкой, из кабинета прокси."
+          : /403/.test(raw)
+          ? "Доступ запрещён (403). Проверьте, что модель доступна на вашем тарифе прокси, и баланс аккаунта."
+          : `Ошибка прокси: ${raw.slice(0, 200)}`,
+      };
+    }
+  } else if (wantsPing && provider === "proxy") {
+    proxyPing = { ok: false, detail: "Пинг не выполнен: не заданы PROXY_API_KEY и/или PROXY_BASE_URL." };
+  }
 
   if (wantsPing && provider === "yandex" && yKeySet && yFolderSet && !yPlaceholder) {
     try {
@@ -114,7 +169,7 @@ export async function GET(req: NextRequest) {
     ycPing = { ok: false, detail: "Пинг не выполнен: не заданы YC_API_KEY и/или YC_FOLDER_ID." };
   }
 
-  if (wantsPing && cfg.found && (provider === "zai" || ycPing === null)) {
+  if (wantsPing && cfg.found && provider === "zai") {
     try {
       const zai = await ZAI.create();
       const res = (await zai.chat.completions.create({
@@ -142,17 +197,22 @@ export async function GET(req: NextRequest) {
   }
 
   // Итоговый статус смотрим по активному движку:
+  //  - прокси активен → критичны PROXY-переменные и proxyPing;
   //  - Яндекс активен → критичны только YC-переменные и ycPing;
-  //  - Z.AI активен → как раньше (ZAI-переменные + aiPing), YC — информационно.
+  //  - Z.AI активен → как раньше (ZAI-переменные + aiPing), остальные — информационно.
   const activeOk =
-    provider === "yandex"
+    provider === "proxy"
+      ? proxyCheck.ok && (!proxyPing || proxyPing.ok)
+      : provider === "yandex"
       ? yandexCheck.ok && (!ycPing || ycPing.ok)
       : zaiChecks.every((c) => c.ok) && (!aiPing || aiPing.ok);
 
   const activeEngineNote =
-    provider === "yandex"
+    provider === "proxy"
+      ? `Активен движок прокси: модель-редактор ${process.env.PROXY_EDIT_MODEL?.trim() || "(не задана PROXY_EDIT_MODEL)"} правит фото с сохранением лица, vision — ${process.env.PROXY_VISION_MODEL?.trim() || "qwen/qwen3.7-flash"}. Оплата в рублях в кабинете прокси.`
+      : provider === "yandex"
       ? "Активен движок Яндекс: YandexGPT понимает фото и текст, YandexART рисует портрет. Оплата в рублях (платёжный аккаунт Yandex Cloud)."
-      : "Активен движок Z.AI. Чтобы переключиться на Яндекс (оплата в рублях), задайте YC_API_KEY и YC_FOLDER_ID и сделайте Redeploy.";
+      : "Активен движок Z.AI. Чтобы переключиться на Яндекс (оплата в рублях), задайте YC_API_KEY и YC_FOLDER_ID; на прокси — PROXY_API_KEY, PROXY_BASE_URL и PROXY_EDIT_MODEL.";
 
   return NextResponse.json(
     {
@@ -166,10 +226,18 @@ export async function GET(req: NextRequest) {
         ZAI_BASE_URL: envUrlSet ? process.env.ZAI_BASE_URL : "не задан",
         YC_API_KEY: yKeySet ? `задан (${String(process.env.YC_API_KEY).trim().slice(0, 4)}…)` : "не задан",
         YC_FOLDER_ID: yFolderSet ? "задан" : "не задан",
+        PROXY_API_KEY: pKeySet ? `задан (${String(process.env.PROXY_API_KEY).trim().slice(0, 4)}…)` : "не задан",
+        PROXY_BASE_URL: pUrlSet ? String(process.env.PROXY_BASE_URL).trim() : "не задан",
+        PROXY_EDIT_MODEL: pEditSet ? String(process.env.PROXY_EDIT_MODEL).trim() : "не задан",
       },
       checks,
       imageMode:
-        provider === "yandex"
+        provider === "proxy"
+          ? {
+              mode: "edit",
+              note: "Правка фото через прокси: модель-редактор принимает ваше фото на входе — лицо сохраняется. Если модель откажет, приложение подскажет причину по-русски."
+            }
+          : provider === "yandex"
           ? {
               mode: "portrait",
               note: "У Яндекса нет правки фотографии — приложение создаёт образ как фотореалистичный портрет по описанию внешности с вашего фото (YandexGPT описывает внешность, YandexART рисует с макияжем). Лицо может немного отличаться от оригинала."
@@ -185,6 +253,7 @@ export async function GET(req: NextRequest) {
             },
       aiPing,
       ycPing,
+      proxyPing,
       advice: activeOk
         ? "Всё настроено — генерация должна работать. Если она всё же падает, пришлите текст ошибки из приложения."
         : wantsPing

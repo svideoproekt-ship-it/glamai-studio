@@ -14,6 +14,16 @@ const ICONS: Record<string, LucideIcon> = {
   spoolie: Sparkles,
 };
 
+/** Цветная подсветка иконок активных кистей (без тревожного красного) */
+const BRUSH_COLORS: Record<string, string> = {
+  fluffy: "#008B8B",
+  flat: "#FF7A59",
+  sponge: "#9B6EF3",
+  pencil: "#3E8EF7",
+  fan: "#8CE99A",
+  spoolie: "#F6B93B",
+};
+
 interface BrushPanelProps {
   brushes: string[];
   onToggle: (id: string) => void;
@@ -24,10 +34,11 @@ interface BrushPanelProps {
 export function BrushPanel({ brushes, onToggle, overall, onOverall }: BrushPanelProps) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2.5">
         {BRUSHES.map((b) => {
           const Icon = ICONS[b.id] ?? Brush;
           const active = brushes.includes(b.id);
+          const color = BRUSH_COLORS[b.id] ?? "#008B8B";
           return (
             <button
               type="button"
@@ -36,13 +47,25 @@ export function BrushPanel({ brushes, onToggle, overall, onOverall }: BrushPanel
               aria-pressed={active}
               title={b.hint}
               className={cn(
-                "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                "flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-2xl font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:scale-[0.98]",
                 active
-                  ? "border-[#D4AF37]/60 bg-[#241e10] text-[#E8CF7A]"
-                  : "border-border/60 bg-secondary/30 text-muted-foreground hover:border-[#D4AF37]/40 hover:text-foreground"
+                  ? "border-transparent text-[#6F4E37] shadow-sm"
+                  : "border-[#F8F1E1]/45 bg-[#F8F1E1]/45 text-[#6F4E37]/85 hover:bg-[#F8F1E1]/70 hover:text-[#6F4E37]"
               )}
+              style={
+                active
+                  ? {
+                      background: `linear-gradient(100deg, ${color}30, #F8F1E1 62%)`,
+                      borderColor: `${color}66`,
+                      boxShadow: `0 3px 14px ${color}33`,
+                    }
+                  : {}
+              }
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon
+                className={cn("h-6 w-6 shrink-0 transition-transform", active && "scale-110")}
+                style={active ? { color } : undefined}
+              />
               <span className="leading-tight">{b.label}</span>
             </button>
           );
@@ -50,8 +73,8 @@ export function BrushPanel({ brushes, onToggle, overall, onOverall }: BrushPanel
       </div>
 
       <div>
-        <p className="mb-1.5 text-xs text-muted-foreground">Стиль образа</p>
-        <div className="grid grid-cols-4 gap-1.5">
+        <p className="mb-1.5 text-sm text-muted-foreground">Стиль образа</p>
+        <div className="grid grid-cols-2 gap-2">
           {OVERALLS.map((s) => (
             <button
               type="button"
@@ -59,10 +82,10 @@ export function BrushPanel({ brushes, onToggle, overall, onOverall }: BrushPanel
               onClick={() => onOverall(s.id)}
               aria-pressed={overall === s.id}
               className={cn(
-                "h-8 rounded-lg border text-xs transition-colors",
+                "h-12 rounded-xl border px-2 text-2xl font-semibold transition-all active:scale-95",
                 overall === s.id
-                  ? "border-[#D4AF37]/60 bg-[#241e10] text-[#E8CF7A]"
-                  : "border-border/60 bg-secondary/30 text-muted-foreground hover:border-[#D4AF37]/40 hover:text-foreground"
+                  ? "border-transparent bg-gradient-to-r from-[#008B8B] to-[#16B8A6] text-white shadow-md shadow-[#032916]/40"
+                  : "border-[#F8F1E1]/45 bg-[#F8F1E1]/45 text-[#6F4E37]/85 hover:bg-[#F8F1E1]/70 hover:text-[#6F4E37]"
               )}
             >
               {s.label}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Info, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -18,6 +18,8 @@ const STATUSES = [
   "Смешиваем текстуры…",
   "Финальный штрих…",
 ];
+
+const DOT_COLORS = ["#008B8B", "#16B8A6", "#F6B93B"];
 
 interface ResultPanelProps {
   loading: boolean;
@@ -55,15 +57,57 @@ export function ResultPanel({
     return (
       <div
         aria-live="polite"
-        className="shimmer mx-auto flex aspect-[3/4] w-full max-w-md flex-col items-center justify-center gap-4 rounded-2xl border border-[#D4AF37]/25 bg-[#141419]"
+        className="green-card relative mx-auto flex aspect-[3/4] w-full max-w-md flex-col items-center justify-center gap-5 rounded-2xl"
       >
-        <div className="relative">
-          <Sparkles className="absolute -right-3 -top-2 h-5 w-5 animate-pulse text-[#E8CF7A]" />
-          <Loader2 className="h-11 w-11 animate-spin text-[#D4AF37]" />
+        {/* Мерцающие искры по углам */}
+        <Sparkles
+          aria-hidden
+          className="twinkle absolute left-6 top-6 h-4 w-4 text-[#F6B93B]"
+          style={{ animationDuration: "2.1s" }}
+        />
+        <Sparkles
+          aria-hidden
+          className="twinkle absolute right-8 top-10 h-3 w-3 text-[#9B6EF3]"
+          style={{ animationDuration: "2.9s", animationDelay: "-0.9s" }}
+        />
+        <Sparkles
+          aria-hidden
+          className="twinkle absolute bottom-8 left-10 h-3 w-3 text-[#008B8B]"
+          style={{ animationDuration: "2.5s", animationDelay: "-1.6s" }}
+        />
+        <Sparkles
+          aria-hidden
+          className="twinkle absolute bottom-14 right-6 h-4 w-4 text-[#8CE99A]"
+          style={{ animationDuration: "3.3s", animationDelay: "-0.4s" }}
+        />
+
+        {/* Радужное коническое кольцо */}
+        <div className="relative h-16 w-16">
+          <div className="conic-loader absolute inset-0 rounded-full" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Sparkles className="float-y h-6 w-6 text-[#008B8B]" />
+          </div>
         </div>
+
         <div className="text-center">
-          <p className="font-serif text-lg text-[#E8CF7A]">{status}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p key={tick} className="fade-swap font-serif text-xl text-[#F8F1E1]">
+            {status}
+          </p>
+          <div className="mt-3 flex items-center justify-center gap-1.5">
+            {DOT_COLORS.map((c, i) => (
+              <span
+                key={i}
+                aria-hidden
+                className="h-1.5 w-1.5 animate-bounce rounded-full"
+                style={{
+                  backgroundColor: c,
+                  animationDelay: `${i * 0.18}s`,
+                  animationDuration: "1s",
+                }}
+              />
+            ))}
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
             Обычно занимает 20–60 секунд
           </p>
         </div>
@@ -73,26 +117,41 @@ export function ResultPanel({
 
   if (!result) {
     return (
-      <div className="mx-auto flex aspect-[3/4] w-full max-w-md flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-[#D4AF37]/25 bg-[#101014]/60 px-6 text-center">
-        <div className="rounded-full border border-[#D4AF37]/40 bg-[#1a1710] p-4">
-          <Sparkles className="h-8 w-8 text-[#D4AF37]" />
+      <div className="green-window mx-auto flex aspect-[3/4] w-full max-w-md flex-col items-center justify-center gap-4 rounded-2xl px-6 text-center">
+        <div className="float-y rounded-full bg-gradient-to-br from-[#8CE99A]/25 via-[#16B8A6]/20 to-[#9B6EF3]/20 p-4 shadow-inner">
+          <Sparkles className="h-8 w-8 text-[#8CE99A]" />
         </div>
-        <p className="font-serif text-xl text-foreground/90">Результат появится здесь</p>
-        <ol className="space-y-1.5 text-xs text-muted-foreground">
-          <li>1. Загрузите фото модели или клиента</li>
-          <li>2. Соберите образ в палитре или с референсом</li>
-          <li>3. Сравните «до и после» и сохраните</li>
+        <p className="font-serif text-2xl text-[#F8F1E1]">Результат появится здесь</p>
+        <ol className="space-y-2 text-sm text-muted-foreground">
+          <li className="flex items-center gap-2">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#8CE99A]/25 text-xs font-bold text-[#DFF7E6]">
+              1
+            </span>
+            Загрузите фото модели или клиента
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#9B6EF3]/25 text-xs font-bold text-[#D9CCFF]">
+              2
+            </span>
+            Соберите образ в палитре или с референсом
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F6B93B]/25 text-xs font-bold text-[#F8DFA8]">
+              3
+            </span>
+            Сравните «до и после» и сохраните
+          </li>
         </ol>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div key={result} className="reveal space-y-4">
       {portraitMode && (
-        <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-left">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-          <p className="text-[11px] leading-relaxed text-amber-100/80">
+        <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-left">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <p className="text-[11px] leading-relaxed text-amber-800">
             Режим портрета: тариф Z.AI на вашем сервере не поддерживает правку фотографии,
             поэтому образ создан как фотореалистичный портрет по описанию внешности с вашего
             фото. Лицо может немного отличаться от оригинала.
@@ -107,14 +166,14 @@ export function ResultPanel({
           download={`glamai-look-${Date.now()}.png`}
           aria-label="Скачать образ PNG"
         >
-          <Button className="gold-btn h-10 font-semibold">
+          <Button className="glam-btn h-10 font-semibold">
             <Download className="h-4 w-4" />
             Скачать образ
           </Button>
         </a>
         <Button
           variant="outline"
-          className="border-[#D4AF37]/40 bg-transparent hover:bg-[#241e10] hover:text-[#E8CF7A]"
+          className="border-[#F8F1E1]/40 bg-[#F8F1E1] text-[#6F4E37] transition-all hover:-translate-y-0.5 hover:bg-white hover:text-[#5A3F2B] hover:shadow-md"
           onClick={onRegenerate}
         >
           <RefreshCw className="h-4 w-4" />
@@ -122,7 +181,7 @@ export function ResultPanel({
         </Button>
         <Button
           variant="ghost"
-          className="text-muted-foreground hover:text-foreground"
+          className="text-muted-foreground hover:text-white"
           onClick={onReset}
         >
           <RotateCcw className="h-4 w-4" />
@@ -132,12 +191,12 @@ export function ResultPanel({
 
       {usedDescription && (
         <Collapsible className="mx-auto w-full max-w-md">
-          <CollapsibleTrigger className="group mx-auto flex h-8 items-center gap-1.5 rounded-md px-3 text-xs text-muted-foreground transition-colors hover:text-[#E8CF7A]">
+          <CollapsibleTrigger className="group mx-auto flex h-8 items-center gap-1.5 rounded-md px-3 text-xs text-muted-foreground transition-colors hover:text-[#F8F1E1]">
             Что ИИ увидел на референсе
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-[#101014] p-3 text-left text-[11px] leading-relaxed text-muted-foreground">
+            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#C9EED8]/25 bg-[#043E21]/80 p-3 text-left text-[11px] leading-relaxed text-[#CFEEDB]">
               {usedDescription}
             </pre>
           </CollapsibleContent>
@@ -146,12 +205,12 @@ export function ResultPanel({
 
       {usedPrompt && (
         <Collapsible className="mx-auto w-full max-w-md">
-          <CollapsibleTrigger className="group mx-auto flex h-8 items-center gap-1.5 rounded-md px-3 text-xs text-muted-foreground transition-colors hover:text-[#E8CF7A]">
+          <CollapsibleTrigger className="group mx-auto flex h-8 items-center gap-1.5 rounded-md px-3 text-xs text-muted-foreground transition-colors hover:text-[#F8F1E1]">
             Использованный промпт
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-[#101014] p-3 text-left text-[11px] leading-relaxed text-muted-foreground">
+            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#C9EED8]/25 bg-[#043E21]/80 p-3 text-left text-[11px] leading-relaxed text-[#CFEEDB]">
               {usedPrompt}
             </pre>
           </CollapsibleContent>

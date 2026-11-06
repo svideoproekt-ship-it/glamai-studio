@@ -44,8 +44,8 @@ async function toJpegDataUrl(pngBase64: string): Promise<string> {
 function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const low = raw.toLowerCase();
-  // Ошибки Яндекс-движка уже переведены на русский в yandex-ai.ts — показываем как есть
-  if (low.includes("yandex") || low.includes("яндекс")) {
+  // Ошибки Яндекс- и прокси-движков уже переведены на русский — показываем как есть
+  if (low.includes("yandex") || low.includes("яндекс") || low.includes("прокси") || low.includes("proxy")) {
     return raw;
   }
   if (
@@ -148,6 +148,43 @@ function isRateLimitError(err: unknown): boolean {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
+}
+
+// Promise.race со страховочным таймером. Таймер ОБЯЗАН очищаться, когда гонка
+// завершилась: иначе «проигравший» reject срабатывает уже после успешного ответа
+// клиенту и становится unhandledRejection — Node 20+ падает с этим процессом.
+async function raceWithTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  makeTimeoutError: () => Error
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(makeTimeoutError()), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// То же, но по таймауту возвращаем null (для ретрая, где таймаут = «не успели,
+// берём первый вариант»); таймер тоже очищается, чтобы не держать процесс.
+async function raceWithSoftTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T | null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // До 3 попыток при 429: паузы 4 с и 8 с. Итоговые вызовы защищены таймаутом.
@@ -272,16 +309,15 @@ export async function POST(req: NextRequest) {
     try {
       genResult = await callWithRateLimitRetry(
         () =>
-          Promise.race([
+          raceWithTimeout(
             generateMakeupImage(zai, {
               makeupPrompt: prompt,
               modelPhoto,
               size,
             }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("edit timeout")), EDIT_TIMEOUT_MS)
-            ),
-          ]),
+            EDIT_TIMEOUT_MS,
+            () => new Error("edit timeout")
+          ),
         { startedAt, deadlineMs: 55_000, label: "edit" }
       );
     } catch (editErr) {
@@ -323,7 +359,7 @@ export async function POST(req: NextRequest) {
         try {
           // Ретрай — это новая генерация, а не правка: он может оказаться хуже.
           // Поэтому второй вариант тоже аудируем и возвращаем лучший из двух.
-          const retryRes = await Promise.race([
+          const retryRes = await raceWithSoftTimeout(
             callWithRateLimitRetry(
               () =>
                 generateMakeupImage(zai, {
@@ -333,8 +369,8 @@ export async function POST(req: NextRequest) {
                 }),
               { startedAt, deadlineMs: 55_000, label: "qa retry" }
             ),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRY_TIMEOUT_MS)),
-          ]);
+            RETRY_TIMEOUT_MS
+          );
           const retryB64 = (retryRes as Awaited<ReturnType<typeof generateMakeupImage>> | null)?.base64;
           console.log(`[tryon] qa: retry done at ${((Date.now() - startedAt) / 1000).toFixed(1)}s, got image: ${Boolean(retryB64)}`);
           if (retryB64) {

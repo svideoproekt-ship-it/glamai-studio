@@ -3,9 +3,14 @@ import { isRouteMissing } from "@/lib/zai-vision";
 import { getAiProvider } from "@/lib/ai-provider";
 import { visionChatAny } from "@/lib/vision";
 import { ensureYandexConfig, yandexArt } from "@/lib/yandex-ai";
+import { ensureProxyConfig, proxyEditImage } from "@/lib/proxy-ai";
 
 /**
- * Генерация образа с автоподбором способа (v1.4.2):
+ * Генерация образа с автоподбором способа (v1.4.3):
+ *
+ *  НОВОЕ в v1.4.3 — движок «прокси» (OpenAI-совместимый шлюз): модели-редакторы
+ *  (Nano Banana, GPT Image, Seedream…) принимают ФОТО на входе — правка с
+ *  СОХРАНЕНИЕМ ЛИЦА. Вернулся режим «edit» и QA-аудит. См. src/lib/proxy-ai.ts.
  *
  *  Изменение для движка Яндекс: модель aliceai-image-art-3.0 («Alice ART»)
  *  отклоняла прежний промпт (HTTP 400 «Я не могу сгенерировать это
@@ -225,9 +230,14 @@ export async function generateMakeupImage(
   zai: Zai | undefined,
   req: MakeupImageRequest
 ): Promise<MakeupImageResult> {
+  const provider = getAiProvider();
+  // Движок прокси: правка фото моделью-редактором — лицо сохраняется.
+  if (provider === "proxy") {
+    return proxyMakeupImage(req);
+  }
   // Движок Яндекс: правка фото не предусмотрена — сразу портретный режим
   // (YandexGPT снимает словесный портрет, YandexART рисует с макияжем).
-  if (getAiProvider() === "yandex" || !zai) {
+  if (provider === "yandex" || !zai) {
     return yandexMakeupImage(req);
   }
 
@@ -257,6 +267,27 @@ export async function generateMakeupImage(
   const size = sizeForGlmImage(req.size);
   const base64 = await glmImageGenerate(zai, prompt, size);
   return { base64, pipeline: "portrait", identity };
+}
+
+/**
+ * Правка фото на движке прокси (OpenAI-совместимый шлюз):
+ * модель-редактор принимает исходное фото и промпт макияжа — возвращает
+ * ту же фотографию с макияжем, лицо сохраняется (pipeline: "edit").
+ */
+async function proxyMakeupImage(req: MakeupImageRequest): Promise<MakeupImageResult> {
+  const cfg = ensureProxyConfig();
+  if (!cfg.editModel) {
+    throw new Error(
+      "Не задана PROXY_EDIT_MODEL. На Vercel: Settings → Environment Variables → добавьте имя модели-редактора из перечня ProxyAPI (например bytedance-seed/seedream-5-0-flash или openai/gpt-image-2.5-flare) и сделайте Redeploy."
+    );
+  }
+  const base64 = await proxyEditImage(cfg, {
+    prompt: req.makeupPrompt,
+    imageDataUrl: req.modelPhoto,
+    size: req.size,
+    timeoutMs: 40_000,
+  });
+  return { base64, pipeline: "edit" };
 }
 
 /**
@@ -304,4 +335,3 @@ async function yandexMakeupImage(req: MakeupImageRequest): Promise<MakeupImageRe
     return { base64, pipeline: "portrait", identity };
   }
 }
-

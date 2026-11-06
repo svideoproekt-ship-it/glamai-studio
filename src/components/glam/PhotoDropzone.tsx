@@ -44,7 +44,9 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold tracking-wide text-foreground/90">{title}</h3>
+        <h3 className="flex items-center gap-2 text-xl font-bold tracking-wide text-[#F8F1E1]">
+          {title}
+        </h3>
         {value && (
           <button
             type="button"
@@ -58,15 +60,15 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
       </div>
 
       {value ? (
-        <div className="relative overflow-hidden rounded-xl border border-[#D4AF37]/25">
+        <div className="green-window pop-in rounded-xl p-1">
           <img
             src={value.dataUrl}
             alt={title}
-            className="block max-h-72 w-full object-cover"
+            className="block max-h-72 w-full rounded-lg object-cover"
           />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-1.5 pt-7">
-            <p className="truncate text-[11px] text-white/80">{value.name}</p>
-          </div>
+          <p className="truncate px-2 pb-1 pt-1.5 text-[11px] text-muted-foreground">
+            {value.name}
+          </p>
         </div>
       ) : (
         <button
@@ -83,17 +85,29 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
             void handleFiles(e.dataTransfer.files);
           }}
           className={cn(
-            "flex w-full cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[#D4AF37]/40 bg-[#141419]/60 px-4 py-7 text-center transition-colors hover:border-[#D4AF37]/70 hover:bg-[#1a1710]",
-            dragOver && "border-[#E8CF7A] bg-[#241e10] ring-1 ring-[#D4AF37]/50"
+            "flex w-full cursor-pointer flex-col items-center gap-2.5 rounded-2xl px-4 py-8 text-center transition-all duration-200 hover:shadow-lg hover:shadow-[#032916]/50",
+            "border-2 border-dashed border-[#8CE99A]/55 bg-[#043E21]/60",
+            dragOver &&
+              "scale-[1.02] border-[#8CE99A] bg-[#04512B]/80 shadow-xl shadow-[#032916]/60 ring-4 ring-[#8CE99A]/25"
           )}
         >
-          {busy ? (
-            <Loader2 className="h-7 w-7 animate-spin text-[#D4AF37]" />
-          ) : (
-            <ImagePlus className="h-7 w-7 text-[#D4AF37]" />
-          )}
-          <span className="text-sm text-foreground/90">Перетащите фото сюда</span>
-          <span className="text-xs text-muted-foreground">
+          <div
+            className={cn(
+              "rounded-2xl bg-gradient-to-br from-[#8CE99A]/25 via-[#16B8A6]/20 to-[#9B6EF3]/20 p-3",
+              !busy && "float-y",
+              dragOver && !busy && "wiggle"
+            )}
+          >
+            {busy ? (
+              <Loader2 className="h-7 w-7 animate-spin text-[#8CE99A]" />
+            ) : (
+              <ImagePlus className="h-7 w-7 text-[#8CE99A]" />
+            )}
+          </div>
+          <span className="text-base font-semibold text-[#F8F1E1]">
+            {dragOver ? "Отпускайте — загружаем!" : "Перетащите фото сюда"}
+          </span>
+          <span className="text-sm text-muted-foreground">
             или нажмите, чтобы выбрать файл · {hint}
           </span>
         </button>

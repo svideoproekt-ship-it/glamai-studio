@@ -38,72 +38,85 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --color-gold: #d4af37;
-  --color-gold-light: #e8cf7a;
-  --color-gold-deep: #9c7a1e;
+  --color-sea-brand: #008b8b;
+  --color-aqua-brand: #16b8a6;
+  --color-greenlight-brand: #8ce99a;
+  --color-gold: #f6b93b;
+  --color-lav-brand: #9b6ef3;
+  --color-cocoa: #6f4e37;
+  --color-cream: #f8f1e1;
+  --color-forest: #0a5a30;
+  --color-forest-deep: #043e21;
+  --color-mintlight: #b9f6cf;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Люкс тёмная тема: графит + золото */
+/*
+  «Зелёная студия»: сочный зелёный фон по всей площади (включая окна
+  портретов), кнопки и активные элементы — полноценный цвет морской
+  волны (#008B8B), названия в палитре и кистях — крупный шрифт цвета
+  какао на кремовых «плашках». Золото и лаванда — радостные акценты.
+*/
 :root {
-  --radius: 0.75rem;
-  --background: #0a0a0d;
-  --foreground: #f4efe4;
-  --card: #141419;
-  --card-foreground: #f4efe4;
-  --popover: #191920;
-  --popover-foreground: #f4efe4;
-  --primary: #d4af37;
-  --primary-foreground: #17120a;
-  --secondary: #1d1d24;
-  --secondary-foreground: #ede7d9;
-  --muted: #1a1a21;
-  --muted-foreground: #a29c8d;
-  --accent: #241e10;
-  --accent-foreground: #e8cf7a;
-  --destructive: #c0392b;
-  --destructive-foreground: #fff5f5;
-  --border: rgba(212, 175, 55, 0.16);
-  --input: rgba(212, 175, 55, 0.28);
-  --ring: #d4af37;
-  --chart-1: #d4af37;
-  --chart-2: #b23a48;
-  --chart-3: #8a6d3b;
-  --chart-4: #e8cf7a;
-  --chart-5: #6e5a4e;
-  --sidebar: #141419;
-  --sidebar-foreground: #f4efe4;
-  --sidebar-primary: #d4af37;
-  --sidebar-primary-foreground: #17120a;
-  --sidebar-accent: #241e10;
-  --sidebar-accent-foreground: #e8cf7a;
-  --sidebar-border: rgba(212, 175, 55, 0.16);
-  --sidebar-ring: #d4af37;
+  --radius: 0.9rem;
+  --background: #2aa05a;
+  --foreground: #f2fbf5;
+  --card: #ffffff;
+  --card-foreground: #1f3d3b;
+  --popover: #ffffff;
+  --popover-foreground: #1f3d3b;
+  --primary: #008b8b;
+  --primary-foreground: #ffffff;
+  --secondary: #1e7a46;
+  --secondary-foreground: #eaf9f0;
+  --muted: rgba(4, 62, 33, 0.55);
+  --muted-foreground: #c9eed8;
+  --accent: #e7f8ec;
+  --accent-foreground: #2b8a3e;
+  --destructive: #8ce99a;
+  --destructive-foreground: #14532d;
+  --border: rgba(216, 245, 228, 0.28);
+  --input: rgba(216, 245, 228, 0.45);
+  --ring: #8ce99a;
+  --chart-1: #008b8b;
+  --chart-2: #16b8a6;
+  --chart-3: #f6b93b;
+  --chart-4: #9b6ef3;
+  --chart-5: #8ce99a;
+  --sidebar: #0a5a30;
+  --sidebar-foreground: #f2fbf5;
+  --sidebar-primary: #008b8b;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1e7a46;
+  --sidebar-accent-foreground: #eaf9f0;
+  --sidebar-border: rgba(216, 245, 228, 0.28);
+  --sidebar-ring: #8ce99a;
 }
 
+/* Приложение всегда светлое: .dark повторяет :root, чтобы не было тёмных артефактов */
 .dark {
-  --background: #0a0a0d;
-  --foreground: #f4efe4;
-  --card: #141419;
-  --card-foreground: #f4efe4;
-  --popover: #191920;
-  --popover-foreground: #f4efe4;
-  --primary: #d4af37;
-  --primary-foreground: #17120a;
-  --secondary: #1d1d24;
-  --secondary-foreground: #ede7d9;
-  --muted: #1a1a21;
-  --muted-foreground: #a29c8d;
-  --accent: #241e10;
-  --accent-foreground: #e8cf7a;
-  --destructive: #c0392b;
-  --destructive-foreground: #fff5f5;
-  --border: rgba(212, 175, 55, 0.16);
-  --input: rgba(212, 175, 55, 0.28);
-  --ring: #d4af37;
+  --background: #2aa05a;
+  --foreground: #f2fbf5;
+  --card: #ffffff;
+  --card-foreground: #1f3d3b;
+  --popover: #ffffff;
+  --popover-foreground: #1f3d3b;
+  --primary: #008b8b;
+  --primary-foreground: #ffffff;
+  --secondary: #1e7a46;
+  --secondary-foreground: #eaf9f0;
+  --muted: rgba(4, 62, 33, 0.55);
+  --muted-foreground: #c9eed8;
+  --accent: #e7f8ec;
+  --accent-foreground: #2b8a3e;
+  --destructive: #8ce99a;
+  --destructive-foreground: #14532d;
+  --border: rgba(216, 245, 228, 0.28);
+  --input: rgba(216, 245, 228, 0.45);
+  --ring: #8ce99a;
 }
 
 @layer base {
@@ -114,59 +127,282 @@
     @apply text-foreground;
     background-color: var(--background);
     background-image:
-      radial-gradient(1100px 700px at 75% -10%, rgba(212, 175, 55, 0.09), transparent 60%),
-      radial-gradient(900px 650px at -15% 108%, rgba(212, 175, 55, 0.06), transparent 55%),
-      radial-gradient(500px 400px at 50% 50%, rgba(212, 175, 55, 0.025), transparent 70%);
+      radial-gradient(900px 600px at 8% -8%, rgba(185, 246, 207, 0.3), transparent 60%),
+      radial-gradient(800px 560px at 96% 4%, rgba(246, 185, 59, 0.16), transparent 58%),
+      radial-gradient(760px 520px at 50% 106%, rgba(155, 110, 243, 0.14), transparent 56%),
+      radial-gradient(700px 480px at 88% 82%, rgba(0, 139, 139, 0.22), transparent 55%);
     background-attachment: fixed;
   }
   ::selection {
-    background: rgba(212, 175, 55, 0.35);
-    color: #fff8e6;
+    background: rgba(0, 139, 139, 0.45);
+    color: #ffffff;
   }
 }
 
-/* Золотой градиентный текст для заголовков */
-.gold-text {
-  background: linear-gradient(115deg, #f1d98a 0%, #d4af37 45%, #9c7a1e 100%);
+/* ── Брендовый градиентный текст (анимированный перелив) ── */
+.brand-text {
+  background: linear-gradient(
+    115deg,
+    #008b8b 0%,
+    #16b8a6 28%,
+    #f6b93b 52%,
+    #9b6ef3 78%,
+    #008b8b 100%
+  );
+  background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: gradient-shift 7s ease-in-out infinite;
+}
+@keyframes gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
-/* Золотая кнопка */
-.gold-btn {
-  background-image: linear-gradient(120deg, #e8cf7a 0%, #d4af37 48%, #b8860b 100%);
-  color: #191307;
-  box-shadow: 0 4px 18px rgba(212, 175, 55, 0.32);
+/* ── Главная кнопка: морская волна → аква, блик при наведении ── */
+.glam-btn {
+  position: relative;
+  overflow: hidden;
+  background-image: linear-gradient(110deg, #007a7a 0%, #008b8b 45%, #16b8a6 90%, #2fc9a8 115%);
+  background-size: 160% 100%;
+  background-position: 0% 50%;
+  color: #ffffff;
+  box-shadow: 0 6px 22px rgba(0, 139, 139, 0.35);
+  transition:
+    background-position 0.5s ease,
+    filter 0.2s ease,
+    transform 0.15s ease,
+    box-shadow 0.3s ease;
 }
-.gold-btn:hover {
-  filter: brightness(1.07);
+.glam-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-130%) skewX(-18deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transition: transform 0.65s ease;
+  pointer-events: none;
 }
-.gold-btn:disabled {
-  filter: saturate(0.4) brightness(0.75);
+.glam-btn:hover:not(:disabled) {
+  background-position: 90% 50%;
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 9px 28px rgba(0, 139, 139, 0.42);
+}
+.glam-btn:hover:not(:disabled)::after {
+  transform: translateX(130%) skewX(-18deg);
+}
+.glam-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+.glam-btn:disabled {
+  filter: saturate(0.35) brightness(0.92);
   box-shadow: none;
 }
 
-/* Тонкий золотой скроллбар */
-.custom-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(212, 175, 55, 0.4) transparent;
-}
-.custom-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.custom-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scroll::-webkit-scrollbar-thumb {
-  background: rgba(212, 175, 55, 0.35);
-  border-radius: 9999px;
-}
-.custom-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(212, 175, 55, 0.55);
+/* ── Зелёная карточка секции (глубокий лесной тон на живом зелёном фоне) ── */
+.green-card {
+  background: linear-gradient(155deg, rgba(10, 104, 56, 0.93), rgba(6, 78, 42, 0.95));
+  border: 1px solid rgba(190, 243, 212, 0.3);
+  box-shadow: 0 14px 44px rgba(3, 40, 22, 0.4);
+  backdrop-filter: blur(6px);
 }
 
-/* Мерцающий скелетон */
+/* ── «Утопленное» зелёное окно (дропзоны, пустой результат) ── */
+.green-window {
+  background: rgba(4, 62, 33, 0.62);
+  border: 2px dashed rgba(140, 233, 154, 0.55);
+}
+.green-window:hover {
+  border-color: rgba(140, 233, 154, 0.9);
+  background: rgba(4, 81, 43, 0.72);
+}
+
+/* ── Плавающие цветные пятна фона ── */
+.blob {
+  animation: blob-drift 22s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes blob-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(34px, -42px) scale(1.07);
+  }
+  66% {
+    transform: translate(-26px, 24px) scale(0.94);
+  }
+}
+
+/* ── Мерцание искр ── */
+.twinkle {
+  animation: twinkle 2.4s ease-in-out infinite;
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.75) rotate(-8deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15) rotate(6deg);
+  }
+}
+
+/* ── Появление карточек (одноразовое, с задержкой через inline style) ── */
+.pop-in {
+  animation: pop-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Подпрыгивание выбранного свотча ── */
+.swatch-pop {
+  animation: swatch-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes swatch-pop {
+  0% {
+    transform: scale(0.5);
+  }
+  55% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ── Раскрытие результата ── */
+.reveal {
+  animation: reveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Смена статуса при загрузке ── */
+.fade-swap {
+  animation: fade-swap 0.4s ease both;
+}
+@keyframes fade-swap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Мягкое парение (иконки в дропзоне, плитки) ── */
+.float-y {
+  animation: float-y 3.6s ease-in-out infinite;
+}
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* ── Встряска при перетаскивании файла ── */
+.wiggle {
+  animation: wiggle 0.45s ease-in-out infinite;
+}
+@keyframes wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-7deg);
+  }
+  75% {
+    transform: rotate(7deg);
+  }
+}
+
+/* ── Радужный лоадер: вращающееся коническое кольцо ── */
+.conic-loader {
+  background: conic-gradient(
+    #008b8b,
+    #16b8a6,
+    #8ce99a,
+    #f6b93b,
+    #9b6ef3,
+    #008b8b
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
+  animation: spin 1.15s linear infinite;
+}
+
+/* ── Пульс-волна вокруг ручки слайдера ── */
+.handle-pulse::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(0, 139, 139, 0.35);
+  animation: handle-pulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes handle-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+
+/* ── Радужная линия-подчёркивание ── */
+.rainbow-line {
+  background: linear-gradient(
+    90deg,
+    #008b8b,
+    #16b8a6,
+    #8ce99a,
+    #f6b93b,
+    #9b6ef3,
+    #008b8b
+  );
+  background-size: 200% 100%;
+  animation: gradient-shift 8s linear infinite;
+}
+
+/* ── Мягкое мерцание скелетона ── */
 .shimmer {
   position: relative;
   overflow: hidden;
@@ -176,7 +412,7 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(232, 207, 122, 0.07), transparent);
+  background: linear-gradient(90deg, transparent, rgba(0, 139, 139, 0.08), transparent);
   animation: shimmer 1.9s infinite;
 }
 @keyframes shimmer {
@@ -185,7 +421,26 @@
   }
 }
 
-/* Кастомный инпут цвета */
+/* ── Тонкий кремовый скроллбар ── */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(248, 241, 225, 0.5) transparent;
+}
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(248, 241, 225, 0.45);
+  border-radius: 9999px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(248, 241, 225, 0.65);
+}
+
+/* ── Кастомный инпут цвета ── */
 .color-chip {
   -webkit-appearance: none;
   appearance: none;
@@ -204,4 +459,18 @@
 .color-chip::-moz-color-swatch {
   border: none;
   border-radius: 9999px;
+}
+
+/* ── Уважаем настройку «меньше движения» ── */
+@media (prefers-reduced-motion: reduce) {
+  .blob,
+  .twinkle,
+  .float-y,
+  .wiggle,
+  .handle-pulse::before,
+  .brand-text,
+  .rainbow-line,
+  .shimmer::after {
+    animation: none !important;
+  }
 }

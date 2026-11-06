@@ -331,5 +331,3 @@ export async function yandexArt(
   }
   return b64;
 }
-
-
