@@ -5,7 +5,17 @@ import { visionChatAny } from "@/lib/vision";
 import { ensureYandexConfig, yandexArt } from "@/lib/yandex-ai";
 
 /**
- * Генерация образа с автоподбором способа:
+ * Генерация образа с автоподбором способа (v1.4.2):
+ *
+ *  Изменение для движка Яндекс: модель aliceai-image-art-3.0 («Alice ART»)
+ *  отклоняла прежний промпт (HTTP 400 «Я не могу сгенерировать это
+ *  изображение»). Причина: в YandexART уходили инструкции редактирования
+ *  фото («Photo edit: change ONLY the makeup…») и утверждения о конкретном
+ *  человеке («same person», «of this person») — модель работает только как
+ *  «текст → картинка» и такие запросы блокирует контент-фильтр.
+ *  Теперь: 1) vision снимает внешность на РУССКОМ (модель русскоязычная);
+ *  2) промпт — нейтральное описание портрета без инструкций;
+ *  3) при отказе фильтра — автоматический повтор коротким запасным промптом.
  *
  *  1. «edit» — правка исходного фото (сохраняет лицо): путь
  *     /images/generations/edit. Он есть у внутреннего шлюза Z.AI.
@@ -29,18 +39,66 @@ type Zai = Awaited<ReturnType<typeof ZAI.create>>;
  */
 const YANDEX_PROMPT_LIMIT = 490;
 
-function buildYandexPortraitPrompt(makeupPrompt: string, identity: string): string {
-  const head = "Photorealistic studio beauty portrait of this person: ";
-  const style =
-    ". Same face and hairstyle as described. Head-and-shoulders, front-facing. Makeup: ";
-  const headLen = head.length + style.length + 2;
-  const identityBudget = 200;
-  const idRaw = identity.replace(/\s+/g, " ").slice(0, identityBudget);
-  const makeupBudget = Math.max(120, YANDEX_PROMPT_LIMIT - headLen - idRaw.length - 1);
-  const makeup =
-    makeupPrompt.length > makeupBudget ? `${makeupPrompt.slice(0, makeupBudget - 1)}…` : makeupPrompt;
-  const full = `${head}${idRaw}${style}${makeup}`;
-  return full.length > YANDEX_PROMPT_LIMIT ? full.slice(0, YANDEX_PROMPT_LIMIT - 1) + "…" : full;
+/** Промпт для vision-модели в Яндекс-пути: снимает словесный портрет внешности
+ *  НА РУССКОМ (Alice ART — русскоязычная модель, русский текст проходит надёжнее).
+ *  Просим нейтральное описание БЕЗ макияжа и без привязки к конкретному человеку:
+ *  формулировки «тот же человек / this person» контент-фильтр модели отклоняет. */
+const IDENTITY_VISION_PROMPT_RU =
+  "Посмотри на фото и одной строкой опиши внешность человека на русском языке, максимум 40 слов. " +
+  "Нейтральное фактическое описание: возраст, форма лица, глаза (форма и цвет), брови, нос, губы, " +
+  "скулы, тон кожи, причёска и цвет волос, очки, если есть. Макияж игнорируй. " +
+  "Без имён, без оценок и предположений — только описание.";
+
+/** Вытаскивает из промпта правки только ОПИСАНИЕ макияжа (продукты, оттенки,
+ *  стиль, пожелание клиента), выбрасывая инструкции «Photo edit / Keep the
+ *  person / Output…». Именно инструкции редактирования вызывали отказ модели. */
+function extractMakeupForArt(makeupPrompt: string): string {
+  const s = makeupPrompt.replace(/QC feedback[\s\S]*$/i, "").replace(/\s+/g, " ");
+  const recipe =
+    /MAKEUP RECIPE[^:]*:\s*([\s\S]*?)(?=\s*Apply exactly|\s*COLORS:|\s*Keep the person|\s*Note:|\s*Output:|$)/i
+      .exec(s)?.[1] ?? "";
+  const items = /Makeup:\s*([^.]+?)\./i.exec(s)?.[1] ?? "";
+  const note =
+    /Note:\s*"([^"]+)"/i.exec(s)?.[1] ??
+    /described in the note:\s*"([^"]+)"/i.exec(s)?.[1] ??
+    "";
+  const style = /Style:\s*([^.]+?)\./i.exec(s)?.[1] ?? "";
+
+  let core = (recipe.trim() || items.trim()).replace(/\s+/g, " ");
+  if (!core && note) core = note.trim();
+  if (core && note && core.length < 150) core += `. Пожелание клиента: ${note.trim()}`;
+  if (core && style && core.length < 165) core += `. Общий стиль: ${style.trim()}`;
+  return core.trim();
+}
+
+/** Финальный промпт для YandexART: нейтральное описание будущей картинки.
+ *  Никаких «this person / same face / photo edit» — только описание:
+ *  ракурс, свет, внешность, макияж. Рамка на русском, детали макияжа могут
+ *  остаться на английском — модель понимает оба языка. */
+function buildYandexArtPrompt(identity: string, makeup: string): string {
+  const base =
+    "Фотореалистичный студийный портрет, голова и плечи, взгляд в камеру, мягкий ровный свет, естественная кожа";
+  const mk = makeup.replace(/\s+/g, " ").trim().slice(0, 160) || "лёгкий естественный макияж";
+  const id = identity.replace(/\s+/g, " ").trim().slice(0, 190);
+  const full = id ? `${base}. Внешность: ${id}. Макияж: ${mk}` : `${base}. Макияж: ${mk}`;
+  return full.length > YANDEX_PROMPT_LIMIT ? `${full.slice(0, YANDEX_PROMPT_LIMIT - 1)}…` : full;
+}
+
+/** Запасной промпт — вторая попытка, если фильтр отклонил основной:
+ *  короче, только описание, ничего кроме внешности и макияжа. */
+function buildYandexFallbackPrompt(identity: string, makeup: string): string {
+  const mk = makeup.replace(/\s+/g, " ").trim().slice(0, 80) || "лёгкий естественный макияж";
+  const id = identity.replace(/\s+/g, " ").trim().slice(0, 130);
+  const base = "Фотореалистичный студийный портрет, голова и плечи, взгляд в камеру, мягкий свет";
+  return id ? `${base}. Внешность: ${id}. Макияж: ${mk}.` : `${base}. Макияж: ${mk}.`;
+}
+
+/** Отказ контент-фильтра YandexART: HTTP 400 и «Я не могу сгенерировать…».
+ *  Сюда же попадает любой 400 invalid_request_error — запасной промпт
+ *  короче и чище, поэтому вторая попытка безопасна и в других случаях. */
+function isArtContentRefusal(err: unknown): boolean {
+  const t = errText(err);
+  return t.includes("HTTP 400") && /не могу сгенерировать|другую тему|invalid_request_error/i.test(t);
 }
 
 export type ImagePipeline = "edit" | "portrait";
@@ -203,8 +261,11 @@ export async function generateMakeupImage(
 
 /**
  * Портретный режим на движке Яндекса:
- *  1) YandexGPT (multimodal) снимает словесный портрет внешности с фото;
- *  2) YandexART рисует фотореалистичный портрет с выбранным макияжем.
+ *  1) YandexGPT (multimodal) снимает словесный портрет внешности с фото (на русском);
+ *  2) YandexART рисует фотореалистичный портрет с выбранным макияжем
+ *     по нейтральному промпту-описанию;
+ *  3) если контент-фильтр модели отклонил промпт (HTTP 400) — один повтор
+ *     коротким запасным промптом, чтобы пользователь всё равно получил картинку.
  * Правки исходного фото у Яндекса нет — честно возвращаем pipeline: "portrait".
  */
 async function yandexMakeupImage(req: MakeupImageRequest): Promise<MakeupImageResult> {
@@ -212,18 +273,35 @@ async function yandexMakeupImage(req: MakeupImageRequest): Promise<MakeupImageRe
   const startedAt = Date.now();
 
   const identityRaw = await visionChatAny({
-    text: IDENTITY_VISION_PROMPT,
+    text: IDENTITY_VISION_PROMPT_RU,
     images: [req.modelPhoto],
   });
-  const identity = identityRaw.replace(/\s+/g, " ").slice(0, 400);
+  const identity = identityRaw.replace(/\s+/g, " ").trim().slice(0, 400);
 
-  const prompt = buildYandexPortraitPrompt(req.makeupPrompt, identity);
+  const makeup = extractMakeupForArt(req.makeupPrompt);
+  const prompt = buildYandexArtPrompt(identity, makeup);
+  const fallbackPrompt = buildYandexFallbackPrompt(identity, makeup);
+  console.log(`[yandex-art] prompt (${prompt.length} зн.): ${prompt}`);
+  console.log(`[yandex-art] fallback (${fallbackPrompt.length} зн.): ${fallbackPrompt}`);
 
-  // Бюджет YandexART — что осталось от ~50 с (у Vercel-функции лимит 60 с,
-  // сверху ещё QA-аудит): 50 − (ушло на vision), но не больше 45 с и не меньше 15 с.
+  // Бюджет YandexART — что осталось от ~50 с (у Vercel-функции лимит 60 с).
   const remaining = 50_000 - (Date.now() - startedAt);
-  const artBudget = Math.max(15_000, Math.min(remaining, 45_000));
+  const artBudget = Math.max(15_000, Math.min(remaining, 40_000));
 
-  const base64 = await yandexArt(cfg, { prompt, size: req.size, budgetMs: artBudget });
-  return { base64, pipeline: "portrait", identity };
+  try {
+    const base64 = await yandexArt(cfg, { prompt, size: req.size, budgetMs: artBudget });
+    return { base64, pipeline: "portrait", identity };
+  } catch (e) {
+    // Фильтр отклоняет БЫСТРО (без рендера) — повтор успевает даже при 60 с на функцию.
+    const left = 50_000 - (Date.now() - startedAt);
+    if (!isArtContentRefusal(e) || left < 13_000) throw e;
+    console.warn("[yandex-art] модель отклонила промпт (400 «не могу сгенерировать»), повтор запасным промптом");
+    const base64 = await yandexArt(cfg, {
+      prompt: fallbackPrompt,
+      size: req.size,
+      budgetMs: Math.max(12_000, Math.min(left - 2_000, 30_000)),
+    });
+    return { base64, pipeline: "portrait", identity };
+  }
 }
+
