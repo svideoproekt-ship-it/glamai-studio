@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, LogOut, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +16,7 @@ import {
   type ProductId,
   type ProductState,
 } from "@/lib/makeup";
+import AuthGate, { useAuth } from "@/components/glam/AuthGate";
 
 type Mode = "prompt" | "reference";
 
@@ -59,6 +60,11 @@ function BackgroundDecor() {
   );
 }
 
+function fmtUntil(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
 /** Заголовок секции с цветным маркером */
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -73,6 +79,15 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 export default function Home() {
+  return (
+    <AuthGate>
+      <Studio />
+    </AuthGate>
+  );
+}
+
+function Studio() {
+  const { profile, refresh, openPaywall } = useAuth();
   const [mode, setMode] = useState<Mode>("prompt");
   const [modelPhoto, setModelPhoto] = useState<PhotoValue | null>(null);
   const [refPhoto, setRefPhoto] = useState<PhotoValue | null>(null);
@@ -170,6 +185,21 @@ export default function Home() {
         }),
       });
 
+      // Лимит исчерпан — сервер возвращает 402 с paywall: открываем окно тарифов
+      if (res.status === 402) {
+        try {
+          const pay = (await res.json()) as { error?: string };
+          openPaywall({ message: pay.error });
+        } catch {
+          openPaywall({});
+        }
+        void refresh();
+        return;
+      }
+      if (res.status === 401) {
+        throw new Error("Сессия истекла — обновите страницу и войдите через Telegram заново.");
+      }
+
       // Платформа может вернуть не JSON (HTML-страницу ошибки Vercel/прокси) —
       // тогда парсинг падает с криптичной ошибкой. Ловим и объясняем по-русски.
       const rawText = await res.text();
@@ -196,6 +226,7 @@ export default function Home() {
       setUsedDescription(data.description ?? null);
       setPortraitMode(data.pipeline === "portrait");
       toast({ title: "Образ готов ✨", description: "Сравните «до и после» и сохраните." });
+      void refresh(); // обновляем счётчик оставшихся генераций
     } catch (e) {
       showError(e instanceof Error ? e.message : "Неизвестная ошибка");
     } finally {
@@ -213,7 +244,18 @@ export default function Home() {
     promptText,
     refComment,
     showError,
+    openPaywall,
+    refresh,
   ]);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* всё равно уводим на перезагрузку */
+    }
+    window.location.href = "/";
+  }, []);
 
   const resetResult = useCallback(() => {
     setResult(null);
@@ -286,9 +328,30 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <span className="hidden rounded-full border border-[#F8F1E1]/35 bg-white/10 px-3 py-1 text-[11px] text-[#F8F1E1] sm:inline-block">
-            Фото не сохраняются · обработка в момент запроса
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="hidden rounded-full border border-[#F8F1E1]/35 bg-white/10 px-3 py-1 text-[11px] text-[#F8F1E1] lg:inline-block">
+              Фото не сохраняются · обработка в момент запроса
+            </span>
+            {profile && (
+              <span
+                className="rounded-full border border-[#8CE99A]/45 bg-[#008B8B]/35 px-3 py-1 text-[11px] font-semibold text-[#F8F1E1]"
+                data-testid="quota-chip"
+              >
+                {profile.subscriptionActive
+                  ? `${profile.planLabel} · до ${fmtUntil(profile.subscriptionUntil)}`
+                  : `Пробные: ${profile.remaining} из ${profile.total}`}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void logout()}
+              title="Выйти"
+              aria-label="Выйти"
+              className="rounded-full border border-[#F8F1E1]/35 bg-white/10 p-1.5 text-[#F8F1E1] transition-colors hover:bg-white/20"
+            >
+              <LogOut className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
         </div>
         {/* Радужная линия под шапкой */}
         <div aria-hidden className="rainbow-line h-[2px] w-full opacity-70" />

@@ -15,6 +15,7 @@ import { ensureZaiConfig } from "@/lib/zai-config";
 import { visionChatAny } from "@/lib/vision";
 import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { generateMakeupImage, sizeForGlmImage, type ImagePipeline } from "@/lib/zai-image";
+import { consumeAfterSuccess, gateTryon } from "@/lib/gate";
 
 // Vercel с Fluid compute (по умолчанию для новых проектов) даёт на Hobby план
 // до 300 c. Задаём 120 c: этого хватает на полный QA-цикл (правка + аудит +
@@ -254,6 +255,11 @@ export async function POST(req: NextRequest) {
   const AUDIT2_LIMIT_MS = 95_000; // второй аудит — иначе доверяем корректирующему промпту
 
   try {
+    // Ворота подписки: сессия Telegram → пользователь → остаток лимита.
+    // Без входа — 401, без остатка — 402 (клиент откроет окно тарифов).
+    const gate = await gateTryon(req);
+    if (!gate.ok) return gate.response;
+
     const body = (await req.json()) as TryonBody;
     const mode = body.mode === "reference" ? "reference" : "prompt";
 
@@ -412,6 +418,10 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
+    // Списываем генерацию ТОЛЬКО после успешного результата —
+    // неудачные попытки лимит не расходуют
+    await consumeAfterSuccess(gate.tid, mode);
 
     return NextResponse.json({
       success: true,
