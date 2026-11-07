@@ -468,7 +468,6 @@ export default function Home() {
               usedPrompt={usedPrompt}
               usedDescription={usedDescription}
               portraitMode={portraitMode}
-              onRegenerate={generate}
               onReset={resetResult}
             />
           </div>

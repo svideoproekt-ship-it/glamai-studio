@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Info, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -29,7 +29,6 @@ interface ResultPanelProps {
   usedDescription: string | null;
   /** Публичный API Z.AI: результат — портрет по описанию внешности, не правка фото */
   portraitMode?: boolean;
-  onRegenerate: () => void;
   onReset: () => void;
 }
 
@@ -40,7 +39,6 @@ export function ResultPanel({
   usedPrompt,
   usedDescription,
   portraitMode,
-  onRegenerate,
   onReset,
 }: ResultPanelProps) {
   const [tick, setTick] = useState(0);
@@ -171,14 +169,6 @@ export function ResultPanel({
             Скачать образ
           </Button>
         </a>
-        <Button
-          variant="outline"
-          className="border-[#F8F1E1]/40 bg-[#F8F1E1] text-[#6F4E37] transition-all hover:-translate-y-0.5 hover:bg-white hover:text-[#5A3F2B] hover:shadow-md"
-          onClick={onRegenerate}
-        >
-          <RefreshCw className="h-4 w-4" />
-          Ещё вариант
-        </Button>
         <Button
           variant="ghost"
           className="text-muted-foreground hover:text-white"

@@ -3,7 +3,8 @@ import { isRouteMissing } from "@/lib/zai-vision";
 import { getAiProvider } from "@/lib/ai-provider";
 import { visionChatAny } from "@/lib/vision";
 import { ensureYandexConfig, yandexArt } from "@/lib/yandex-ai";
-import { ensureProxyConfig, proxyEditImage } from "@/lib/proxy-ai";
+import { ensureProxyConfig, proxyEditImage, openaiSize } from "@/lib/proxy-ai";
+import { padToRatio, cropBack, sizeRatio, type PadGeometry } from "@/lib/photo-geometry";
 
 /**
  * Генерация образа с автоподбором способа (v1.4.3):
@@ -273,6 +274,14 @@ export async function generateMakeupImage(
  * Правка фото на движке прокси (OpenAI-совместимый шлюз):
  * модель-редактор принимает исходное фото и промпт макияжа — возвращает
  * ту же фотографию с макияжем, лицо сохраняется (pipeline: "edit").
+ *
+ * ФИКС «РАСТЯНУТОГО ЛИЦА» (v1.4.11): шлюз принимает size только в трёх
+ * категориях (openaiSize: 1024x1024 / 1024x1536 / 1536x1024), и у портретных
+ * фото это всегда 2:3. Фото клиента чаще 3:4 или 9:16 — модель втягивала
+ * его в рамку 2:3, растягивая лицо по вертикали. Теперь дописываем фото
+ * до пропорций запрошенной категории размывкой краёв, а после правки
+ * срезаем поля — содержимое не искажается (см. src/lib/photo-geometry.ts).
+ * Любой сбой дописки/обрезки не роняет генерацию — работаем как раньше.
  */
 async function proxyMakeupImage(req: MakeupImageRequest): Promise<MakeupImageResult> {
   const cfg = ensureProxyConfig();
@@ -281,14 +290,44 @@ async function proxyMakeupImage(req: MakeupImageRequest): Promise<MakeupImageRes
       "Не задана PROXY_EDIT_MODEL. На Vercel: Settings → Environment Variables → добавьте имя модели-редактора из перечня ProxyAPI (например bytedance-seed/seedream-5-0-flash или openai/gpt-image-2.5-flare) и сделайте Redeploy."
     );
   }
-  const base64 = await proxyEditImage(cfg, {
+
+  // Дописка до пропорций РЕАЛЬНО отправляемого размера (openaiSize от req.size)
+  let photoDataUrl = req.modelPhoto;
+  let geom: PadGeometry | null = null;
+  try {
+    const padded = await padToRatio(req.modelPhoto, sizeRatio(openaiSize(req.size)));
+    if (padded.padded) {
+      photoDataUrl = padded.dataUrl;
+      geom = padded.geom;
+    }
+  } catch (e) {
+    console.warn(
+      "[proxy-edit] дописка пропорций не удалась — отправляем фото как есть:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
+  const rawBase64 = await proxyEditImage(cfg, {
     prompt: req.makeupPrompt,
-    imageDataUrl: req.modelPhoto,
+    imageDataUrl: photoDataUrl,
     size: req.size,
     // 55 c на попытку пути: Seedream и Nano Banana иногда отвечают дольше 40 c,
     // а функция на Vercel теперь держит 120 c (Fluid compute) — даём помедлить.
     timeoutMs: 55_000,
   });
+
+  // Срезаем дописанные поля (обратная операция к padToRatio)
+  let base64 = rawBase64;
+  if (geom) {
+    try {
+      base64 = await cropBack(rawBase64, geom);
+    } catch (e) {
+      console.warn(
+        "[proxy-edit] обрезка полей не удалась — возвращаем как есть:",
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
   return { base64, pipeline: "edit" };
 }
 
