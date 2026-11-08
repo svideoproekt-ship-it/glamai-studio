@@ -5,9 +5,10 @@
 // подписки после ручной оплаты (перевод → «Выдать подписку»).
 
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { KeyRound, Loader2, RefreshCw, Sparkles, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PLAN_PRICES, planLabel } from "@/lib/plan";
 
 interface AdminUser {
   telegramId: number;
@@ -103,7 +104,10 @@ export default function AdminPage() {
     }
   };
 
-  const act = async (body: Record<string, unknown>, okMsg: string) => {
+  const act = async (
+    body: Record<string, unknown>,
+    okMsg: string | ((data: { untilIso?: string | null }) => string)
+  ) => {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -115,7 +119,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error ?? "Операция не удалась");
-      setNotice(okMsg);
+      setNotice(typeof okMsg === "function" ? okMsg(data) : okMsg);
       await loadList();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка операции");
@@ -123,6 +127,13 @@ export default function AdminPage() {
       setBusy(false);
     }
   };
+
+  // Сумма к оплате пересчитывается на лету: цена тарифа × срок (пропорционально месяцу)
+  const grantDaysNum = Number(grantDays) || 30;
+  const grantMonths = grantDaysNum / 30;
+  const grantTotal = Math.round(PLAN_PRICES[grantPlan] * grantMonths);
+  const monthsLabel =
+    grantDaysNum === 30 ? "1 мес" : grantDaysNum === 90 ? "3 мес" : `${grantDaysNum}/30 мес`;
 
   return (
     <div className="min-h-screen bg-[#043E21] px-4 py-8 text-[#F8F1E1]">
@@ -236,13 +247,35 @@ export default function AdminPage() {
                   onClick={() =>
                     void act(
                       { action: "grant", user: grantUser, plan: grantPlan, days: Number(grantDays) },
-                      "Подписка выдана ✅"
+                      (d) => {
+                        const until = d.untilIso
+                          ? new Date(d.untilIso).toLocaleDateString("ru-RU", {
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            })
+                          : "";
+                        return `Подписка выдана ✅${until ? ` — действует до ${until}` : ""}`;
+                      }
                     )
                   }
                 >
                   Выдать
                 </Button>
               </div>
+              {/* Сумма к оплате: пересчитывается вместе с тарифом и сроком */}
+              <p className="mt-2 text-sm text-[#F8F1E1]/80" data-testid="price-hint">
+                К оплате:{" "}
+                <b className="font-serif text-lg text-[#8CE99A]">
+                  {grantTotal.toLocaleString("ru-RU")} ₽
+                </b>{" "}
+                — {planLabel(grantPlan)} на {grantDaysNum} дн. (= {monthsLabel} ×{" "}
+                {PLAN_PRICES[grantPlan].toLocaleString("ru-RU")} ₽)
+              </p>
+              <p className="mt-1 text-xs text-[#F8F1E1]/60" data-testid="where-until-hint">
+                Где смотреть продление: колонка «Подписка до» в таблице ниже; у мастера в шапке
+                студии появится «{planLabel(grantPlan)} · до …».
+              </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
@@ -254,6 +287,22 @@ export default function AdminPage() {
                   }
                 >
                   Сбросить пробный лимит
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300/40 text-red-200 hover:bg-red-500/15"
+                  disabled={busy || !grantUser.trim()}
+                  onClick={() =>
+                    void act(
+                      { action: "revoke", user: grantUser },
+                      "Подписка отключена — мастер вернулся на пробный тариф"
+                    )
+                  }
+                  data-testid="revoke-sub"
+                >
+                  <XCircle className="h-4 w-4" aria-hidden />
+                  Отключить подписку
                 </Button>
                 <span className="text-xs text-[#F8F1E1]/60">
                   (тем же полем выше — @username или ID)
@@ -273,8 +322,8 @@ export default function AdminPage() {
             )}
 
             <section className="green-card overflow-hidden rounded-3xl">
-              <div className="max-h-[60vh] overflow-y-auto">
-                <table className="w-full text-left text-sm">
+              <div className="max-h-[60vh] overflow-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
                   <thead className="sticky top-0 bg-[#043E21] text-xs uppercase tracking-wide text-[#F8F1E1]/60">
                     <tr>
                       <th className="px-4 py-3">Мастер</th>

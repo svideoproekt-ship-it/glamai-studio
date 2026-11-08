@@ -32,8 +32,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { APP_VERSION } from "@/lib/version";
+import { PLAN_PRICES } from "@/lib/plan";
+import { payInfoComplete, type PayInfo } from "@/lib/pay";
 
 export interface GlamProfile {
+  telegramId: number;
   name: string;
   username: string | null;
   plan: string;
@@ -49,6 +52,7 @@ interface MeResponse {
   authed: boolean;
   botUsername?: string;
   ownerTg?: string;
+  pay?: PayInfo;
   dbError?: boolean;
   dbHint?: string;
   profile?: GlamProfile;
@@ -233,7 +237,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={contextValue}>
       {children}
-      <PaywallDialog payload={paywall} onClose={() => setPaywall(null)} ownerTg={me?.ownerTg ?? ""} />
+      <PaywallDialog
+        payload={paywall}
+        onClose={() => setPaywall(null)}
+        ownerTg={me?.ownerTg ?? ""}
+        pay={me?.pay}
+        profile={me?.profile ?? null}
+      />
     </AuthContext.Provider>
   );
 }
@@ -432,67 +442,165 @@ function LoginScreen({
 
 // ---------- Paywall ----------
 
+const PLANS: Array<{
+  key: "start" | "salon";
+  title: string;
+  accent: string;
+  priceCls: string;
+  perks: string[];
+}> = [
+  {
+    key: "start",
+    title: "Старт",
+    accent: "border-[#8CE99A]/40",
+    priceCls: "text-[#8CE99A]",
+    perks: ["до 60 образов в месяц", "палитра + референсы", "для одного мастера"],
+  },
+  {
+    key: "salon",
+    title: "Салон",
+    accent: "border-[#F6B93B]/50",
+    priceCls: "text-[#F6B93B]",
+    perks: ["до 200 образов в месяц", "для студии и нескольких мастеров", "приоритетная помощь"],
+  },
+];
+
+function fmtRub(n: number): string {
+  return n.toLocaleString("ru-RU");
+}
+
 function PaywallDialog({
   payload,
   onClose,
   ownerTg,
+  pay,
+  profile,
 }: {
   payload: PaywallPayload | null;
   onClose: () => void;
   ownerTg: string;
+  pay?: PayInfo;
+  profile: GlamProfile | null;
 }) {
-  const tgLink = ownerTg
-    ? `https://t.me/${ownerTg.replace(/^@/, "")}?text=${encodeURIComponent(
-        "Здравствуйте! Хочу оформить подписку GlamAI Studio."
-      )}`
-    : "";
+  const [copied, setCopied] = useState(false);
+  const requisitesReady = pay ? payInfoComplete(pay) : false;
+
+  const copyCard = async () => {
+    if (!pay?.card) return;
+    try {
+      await navigator.clipboard.writeText(pay.card.replace(/\s/g, ""));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* буфер обмена недоступен — номер и так виден текстом */
+    }
+  };
+
+  // Ссылка в чат владельца с готовым текстом заявки — у каждого тарифа своя
+  const tgLink = (planKey: "start" | "salon") => {
+    if (!ownerTg) return "";
+    const price = PLAN_PRICES[planKey];
+    const me = [
+      profile?.username ? `@${profile.username}` : null,
+      profile?.telegramId ? `ID ${profile.telegramId}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const text =
+      `Здравствуйте! Хочу подписку «${planKey === "start" ? "Старт" : "Салон"}" ` +
+      `GlamAI Studio — ${fmtRub(price)} ₽/мес${me ? `. Я: ${me}` : ""}. ` +
+      `Перевёл оплату, скриншот чека прикладываю.`;
+    return `https://t.me/${ownerTg.replace(/^@/, "")}?text=${encodeURIComponent(text)}`;
+  };
 
   return (
     <Dialog open={payload !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="green-card max-w-lg rounded-3xl border-[#F8F1E1]/25 p-6 sm:p-7">
+      <DialogContent className="green-card max-h-[92vh] max-w-lg overflow-y-auto rounded-3xl border-[#F8F1E1]/25 p-6 sm:p-7">
         <DialogHeader>
           <DialogTitle className="font-serif text-xl font-bold text-[#F8F1E1]">
             {payload?.title ?? "Пробные образы закончились"}
           </DialogTitle>
           <DialogDescription className="text-sm text-[#F8F1E1]/80">
             {payload?.message ??
-              "Оформите подписку — и продолжите показывать клиенткам образы без ограничений триала."}
+              "Выберите тариф, переведите оплату по реквизитам и отправьте чек в чат — включу подписку."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-[#8CE99A]/40 bg-[#043E21]/70 p-4">
-            <p className="font-serif text-lg font-bold text-[#F8F1E1]">Старт</p>
-            <p className="mt-1 font-serif text-2xl font-bold text-[#8CE99A]">690 ₽<span className="text-sm font-normal text-[#F8F1E1]/70"> / мес</span></p>
-            <ul className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
-              <li>· до 60 образов в месяц</li>
-              <li>· палитра + референсы</li>
-              <li>· цена первых 100 мастеров</li>
-            </ul>
-          </div>
-          <div className="rounded-2xl border border-[#F6B93B]/50 bg-[#043E21]/70 p-4">
-            <p className="font-serif text-lg font-bold text-[#F8F1E1]">Салон</p>
-            <p className="mt-1 font-serif text-2xl font-bold text-[#F6B93B]">2 490 ₽<span className="text-sm font-normal text-[#F8F1E1]/70"> / мес</span></p>
-            <ul className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
-              <li>· до 200 образов в месяц</li>
-              <li>· для студии и нескольких мастеров</li>
-              <li>· цена первых 100 мастеров</li>
-            </ul>
-          </div>
+          {PLANS.map((p) => (
+            <div key={p.key} className={`rounded-2xl border bg-[#043E21]/70 p-4 ${p.accent}`}>
+              <p className="font-serif text-lg font-bold text-[#F8F1E1]">{p.title}</p>
+              <p className="mt-1 font-serif text-2xl font-bold text-[#F8F1E1]">
+                <span className={p.priceCls}>{fmtRub(PLAN_PRICES[p.key])} ₽</span>
+                <span className="text-sm font-normal text-[#F8F1E1]/70"> / мес</span>
+              </p>
+              <ul className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
+                {p.perks.map((perk) => (
+                  <li key={perk}>· {perk}</li>
+                ))}
+              </ul>
+              {tgLink(p.key) ? (
+                <a href={tgLink(p.key)} target="_blank" rel="noreferrer" className="mt-3 block">
+                  <Button className="glam-btn h-10 w-full text-sm font-bold" data-testid={`pay-${p.key}`}>
+                    <Sparkles className="h-4 w-4" aria-hidden />
+                    Выбрать {p.title} — {fmtRub(PLAN_PRICES[p.key])} ₽
+                  </Button>
+                </a>
+              ) : null}
+            </div>
+          ))}
         </div>
 
-        {tgLink ? (
-          <a href={tgLink} target="_blank" rel="noreferrer" className="mt-4 block">
-            <Button className="glam-btn h-12 w-full text-base font-bold">
-              <Sparkles className="h-5 w-5" aria-hidden />
-              Оплатить в Telegram — активируем за 5 минут
-            </Button>
-          </a>
-        ) : (
-          <p className="mt-4 rounded-xl bg-amber-50/95 p-3 text-sm text-amber-900">
-            Канал оплаты не настроен: задайте OWNER_TG_USERNAME (ваш Telegram) на сервере.
-          </p>
-        )}
+        {/* Реквизиты: клиент видит КУДА и СКОЛЬКО переводить */}
+        <div className="mt-3 rounded-2xl border border-[#F8F1E1]/20 bg-[#06301B]/80 p-4" data-testid="pay-requisites">
+          <p className="text-sm font-bold text-[#F8F1E1]">Как оплатить</p>
+          {requisitesReady && pay ? (
+            <>
+              <ol className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
+                <li>1. Переведите сумму за месяц по реквизитам ниже.</li>
+                <li>2. Нажмите «Выбрать тариф» — откроется чат, отправьте скриншот чека.</li>
+                <li>3. Подписка включается вручную, обычно за 5–15 минут.</li>
+              </ol>
+              <div className="mt-3 space-y-1.5 text-sm text-[#F8F1E1]">
+                <p>
+                  <span className="text-[#F8F1E1]/60">Банк:</span> {pay.bank}
+                </p>
+                <p>
+                  <span className="text-[#F8F1E1]/60">Получатель:</span> {pay.holder}
+                </p>
+                <div className="flex items-center gap-2">
+                  <p>
+                    <span className="text-[#F8F1E1]/60">Карта:</span>{" "}
+                    <b className="font-mono tracking-wider">{pay.card}</b>
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void copyCard()}
+                    className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
+                    aria-label="Скопировать номер карты"
+                  >
+                    {copied ? "Скопировано ✓" : "Копировать"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <ol className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
+              <li>1. Нажмите «Выбрать тариф» — откроется чат с владельцем студии.</li>
+              <li>2. Напишите, какой тариф выбрали — вам пришлют реквизиты для перевода.</li>
+              <li>3. После оплаты пришлите скриншот чека — подписку включат за 5–15 минут.</li>
+            </ol>
+          )}
+          {!requisitesReady && (
+            <p className="mt-2 rounded-xl bg-amber-50/95 p-2.5 text-xs text-amber-900">
+              Реквизиты не заданы на сервере. Владелец: добавьте PAYMENT_BANK,
+              PAYMENT_CARD_NUMBER и PAYMENT_CARD_OWNER в Vercel → Settings →
+              Environment Variables и сделайте Redeploy — тогда карта появится здесь.
+            </p>
+          )}
+        </div>
+
         <p className="mt-2 text-center text-xs text-muted-foreground">
           Оплата переводом с чеком. Автооплата картами (ЮKassa) — скоро.
         </p>

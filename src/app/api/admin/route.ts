@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_COOKIE, signAdmin, verifyAdmin } from "@/lib/auth";
-import { adminStats, grantPlan, listUsers, resetTrial } from "@/lib/store";
+import { adminStats, grantPlan, listUsers, resetTrial, revokeSubscription } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -65,12 +65,19 @@ export async function POST(req: NextRequest) {
   try {
     if (body.action === "grant") {
       const plan = body.plan === "salon" ? "salon" : "start";
-      const id = await grantPlan(body.user ?? "", plan, Number(body.days) || 30);
-      if (id === null) {
+      const grant = await grantPlan(body.user ?? "", plan, Number(body.days) || 30);
+      if (grant === null) {
         return NextResponse.json(
           { ok: false, error: "Пользователь не найден. Он должен хотя бы раз войти на сайт." },
           { status: 404 }
         );
+      }
+      return NextResponse.json({ ok: true, id: grant.id, untilIso: grant.untilIso });
+    }
+    if (body.action === "revoke") {
+      const id = await revokeSubscription(body.user ?? "");
+      if (id === null) {
+        return NextResponse.json({ ok: false, error: "Пользователь не найден." }, { status: 404 });
       }
       return NextResponse.json({ ok: true, id });
     }

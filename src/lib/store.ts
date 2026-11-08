@@ -217,18 +217,44 @@ async function resolveUser(user: string): Promise<number | null> {
 /**
  * Выдаёт (или продлевает) подписку: к текущему сроку прибавляется days дней.
  * Квота месяца обнуляется — новый период начинается с полным лимитом.
+ * Возвращает id и новую дату окончания (для подтверждения в админке).
  */
-export async function grantPlan(user: string, plan: "start" | "salon", days: number): Promise<number | null> {
+export async function grantPlan(
+  user: string,
+  plan: "start" | "salon",
+  days: number
+): Promise<{ id: number; untilIso: string | null } | null> {
   const id = await resolveUser(user);
   if (id === null) return null;
   const safeDays = Math.min(3650, Math.max(1, Math.floor(days) || 30));
   const sql = getSql();
   await ensureSchema();
-  await sql`
+  const rows = await sql`
     UPDATE glam_users SET
       plan = ${plan},
       subscription_until = GREATEST(COALESCE(subscription_until, now()), now())
         + ${safeDays} * interval '1 day',
+      monthly_used = 0,
+      monthly_reset_ym = NULL
+    WHERE telegram_id = ${id}
+    RETURNING subscription_until`;
+  const until = rows[0]?.subscription_until;
+  return {
+    id,
+    untilIso: until ? new Date(until as unknown as string).toISOString() : null,
+  };
+}
+
+/** Отключает подписку (для тестов и ошибочных выдач): возврат на пробный тариф. */
+export async function revokeSubscription(user: string): Promise<number | null> {
+  const id = await resolveUser(user);
+  if (id === null) return null;
+  const sql = getSql();
+  await ensureSchema();
+  await sql`
+    UPDATE glam_users SET
+      plan = 'trial',
+      subscription_until = NULL,
       monthly_used = 0,
       monthly_reset_ym = NULL
     WHERE telegram_id = ${id}`;
