@@ -320,10 +320,10 @@ function Studio() {
               />
             </div>
             <div>
-              <p className="font-serif text-xl font-semibold leading-none tracking-wide">
+              <p className="font-serif text-lg font-semibold leading-none tracking-wide sm:text-xl">
                 <span className="brand-text">GlamAI Studio</span>
               </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">
                 ИИ-визажист для студии макияжа
               </p>
             </div>
@@ -334,7 +334,7 @@ function Studio() {
             </span>
             {profile && (
               <span
-                className="rounded-full border border-[#8CE99A]/45 bg-[#008B8B]/35 px-3 py-1 text-[11px] font-semibold text-[#F8F1E1]"
+                className="shrink-0 whitespace-nowrap rounded-full border border-[#8CE99A]/45 bg-[#008B8B]/35 px-3 py-1 text-[11px] font-semibold text-[#F8F1E1]"
                 data-testid="quota-chip"
               >
                 {profile.subscriptionActive
@@ -386,6 +386,21 @@ function Studio() {
 
       {/* Рабочая область */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+        {/* Остаток бесплатных генераций — крупно, видно на любом экране */}
+        {profile && !profile.subscriptionActive && (
+          <div
+            className="mb-4 flex items-center gap-2.5 rounded-2xl border border-[#8CE99A]/40 bg-[#043E21]/60 px-4 py-3 text-sm text-[#F8F1E1]"
+            data-testid="trial-banner"
+          >
+            <Sparkles className="h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
+            <p>
+              Бесплатно: <b>{profile.remaining} из {profile.total}</b> образов
+              {profile.remaining > 0
+                ? " — без карты. Дальше — подписка от 690 ₽/мес."
+                : " — оформите подписку, чтобы продолжить."}
+            </p>
+          </div>
+        )}
         <div className="grid items-start gap-6 lg:grid-cols-[430px_1fr]">
           {/* Левая колонка — настройки */}
           <div>
