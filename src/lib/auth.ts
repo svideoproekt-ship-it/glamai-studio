@@ -66,6 +66,76 @@ export function verifyTelegramAuth(
   };
 }
 
+// ---------- Telegram Mini App (кнопка бота «Открыть студию») ----------
+
+export interface MiniAppAuthData {
+  id: number;
+  firstName: string;
+  lastName?: string;
+  username?: string;
+  photoUrl?: string;
+  authDate: number;
+}
+
+/**
+ * Проверка initData из Telegram Mini App. Алгоритм — по документации Telegram:
+ * data_check_string = все поля initData (кроме hash), по алфавиту, key=value
+ * через \n; секрет = HMAC-SHA256(bot_token, "WebAppData") — именно так, а не
+ * SHA256(bot_token), как у Login Widget. Поле user приходит JSON-строкой.
+ */
+export function verifyMiniAppInitData(
+  initData: string,
+  botToken: string,
+  maxAgeSec = 24 * 3600
+): MiniAppAuthData | null {
+  if (!initData || !botToken) return null;
+
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  if (!hash) return null;
+  params.delete("hash");
+
+  const checkString = [...params.entries()]
+    .filter(([, v]) => v !== "")
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+
+  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+  const computed = crypto.createHmac("sha256", secretKey).update(checkString).digest("hex");
+  const a = Buffer.from(computed, "hex");
+  const b = Buffer.from(hash.toLowerCase(), "hex");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  const authDate = Number(params.get("auth_date"));
+  if (!Number.isFinite(authDate) || Math.abs(Date.now() / 1000 - authDate) > maxAgeSec) {
+    return null;
+  }
+
+  let user: {
+    id?: number;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+    photo_url?: string;
+  };
+  try {
+    user = JSON.parse(params.get("user") ?? "") as typeof user;
+  } catch {
+    return null;
+  }
+  if (!user || !Number.isFinite(user.id) || (user.id ?? 0) <= 0) return null;
+
+  return {
+    id: user.id as number,
+    firstName: (user.first_name ?? "").slice(0, 100) || "Мастер",
+    lastName: user.last_name?.slice(0, 100) || undefined,
+    username: user.username?.slice(0, 100) || undefined,
+    photoUrl: /^https:\/\//.test(user.photo_url ?? "") ? user.photo_url : undefined,
+    authDate,
+  };
+}
+
 // ---------- Сессии ----------
 
 function hmacHex(value: string, secret: string): string {

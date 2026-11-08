@@ -49,6 +49,24 @@ interface PaywallPayload {
   message?: string;
 }
 
+/** Минимальный тип официального скрипта telegram-web-app.js */
+interface TgWebApp {
+  initData?: string;
+  ready?: () => void;
+  expand?: () => void;
+}
+
+function getTelegramWebApp(): TgWebApp | null {
+  if (typeof window === "undefined") return null;
+  return (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp ?? null;
+}
+
+function isTelegramClient(): boolean {
+  if (typeof window === "undefined") return false;
+  // Внутренний браузер Telegram (iOS/Android/Desktop) всегда помечает UA
+  return /Telegram/i.test(window.navigator.userAgent);
+}
+
 interface AuthContextValue {
   profile: GlamProfile | null;
   /** Обновить профиль (остаток генераций) после успешной генерации */
@@ -107,6 +125,57 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setPaywall(payload ?? {});
   }, []);
 
+  // ---------- Вход через Telegram Mini App (кнопка бота «Открыть студию») ----------
+  // Внутри Telegram подключаем официальный скрипт WebApp: он даёт подписанные
+  // initData, сервер (/api/auth/miniapp) проверяет подпись и выдаёт сессию.
+  // Коды, SMS и oauth-подтверждения не нужны — личность подтверждает клиент.
+  const miniAppLogin = useCallback(
+    async (tg: TgWebApp) => {
+      const initData = tg.initData ?? "";
+      if (!initData) return;
+      try {
+        tg.ready?.();
+        tg.expand?.();
+      } catch {
+        /* не критично */
+      }
+      try {
+        const res = await fetch("/api/auth/miniapp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ initData }),
+        });
+        if (res.ok) await refresh();
+      } catch {
+        /* остаёмся на экране входа */
+      }
+    },
+    [refresh]
+  );
+
+  useEffect(() => {
+    if (!isTelegramClient()) return; // обычный браузер — работает Login Widget
+    const tg = getTelegramWebApp();
+    if (tg?.initData) {
+      void miniAppLogin(tg);
+      return;
+    }
+    const src = "https://telegram.org/js/telegram-web-app.js";
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
+    if (existing) {
+      if (getTelegramWebApp()?.initData) void miniAppLogin(getTelegramWebApp() as TgWebApp);
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.onload = () => {
+      const app = getTelegramWebApp();
+      if (app?.initData) void miniAppLogin(app);
+    };
+    document.head.appendChild(s);
+  }, [miniAppLogin]);
+
   const contextValue = useMemo<AuthContextValue>(
     () => ({ profile: me?.profile ?? null, refresh, openPaywall }),
     [me, refresh, openPaywall]
@@ -148,6 +217,16 @@ function LoginScreen({ me }: { me: MeResponse | null }) {
     ? new URLSearchParams(window.location.search).get("auth_error")
     : null;
   const botUsername = me?.botUsername ?? "";
+  const inTelegram = isTelegramClient();
+
+  // Если авто-вход через Mini App затянулся (подпись не прошла и т.п.) —
+  // через 8 секунд показываем подсказку вместо бесконечной карусели
+  const [slowHint, setSlowHint] = useState(false);
+  useEffect(() => {
+    if (!inTelegram) return;
+    const t = setTimeout(() => setSlowHint(true), 8000);
+    return () => clearTimeout(t);
+  }, [inTelegram]);
 
   // Официальный виджет Telegram Login: рендерится в ref-контейнер.
   // Бот и домен сайта должны быть связаны в @BotFather (/setdomain).
@@ -219,7 +298,20 @@ function LoginScreen({ me }: { me: MeResponse | null }) {
         )}
 
         <div className="mt-6">
-          {botUsername ? (
+          {inTelegram ? (
+            // Внутри Telegram виджет-кнопка не нужна: вход идёт автоматически
+            // через initData Mini App (см. miniAppLogin в AuthGate)
+            <div className="flex flex-col items-center gap-2 py-2">
+              <Loader2 className="h-5 w-5 animate-spin text-[#8CE99A]" aria-hidden />
+              <p className="text-sm text-muted-foreground">Входим через Telegram…</p>
+              {slowHint && (
+                <p className="mt-1 rounded-xl bg-amber-50/95 p-3 text-xs text-amber-900">
+                  Вход затянулся. Закрой студию и открой её через бота ещё раз
+                  (кнопка «Открыть студию»), либо открой сайт в обычном браузере.
+                </p>
+              )}
+            </div>
+          ) : botUsername ? (
             <div className="flex flex-col items-center gap-3" ref={widgetRef}>
               {/* Здесь появится кнопка Telegram Login (iframe виджета) */}
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
