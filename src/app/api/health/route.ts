@@ -4,6 +4,7 @@ import { ensureZaiConfig, findZaiConfig } from "@/lib/zai-config";
 import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { ensureYandexConfig, yandexText } from "@/lib/yandex-ai";
 import { ensureProxyConfig, proxyText } from "@/lib/proxy-ai";
+import { APP_VERSION } from "@/lib/version";
 
 export const dynamic = "force-dynamic";
 
@@ -218,6 +219,7 @@ export async function GET(req: NextRequest) {
     {
       status: activeOk ? "ok" : "config-error",
       app: "GlamAI Studio",
+      version: APP_VERSION,
       provider: providerLabel(provider),
       node: process.version,
       platform: process.platform,

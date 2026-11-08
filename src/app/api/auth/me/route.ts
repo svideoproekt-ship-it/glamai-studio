@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getUser, rowAllowance } from "@/lib/store";
+import { APP_VERSION } from "@/lib/version";
 
 export const runtime = "nodejs";
 
@@ -14,13 +15,13 @@ export async function GET(req: NextRequest) {
   const secret = process.env.AUTH_SECRET;
   const tid = verifySession(req.cookies.get(SESSION_COOKIE)?.value, secret ?? "");
   if (tid === null) {
-    return NextResponse.json({ authed: false, botUsername, ownerTg });
+    return NextResponse.json({ authed: false, botUsername, ownerTg, version: APP_VERSION });
   }
 
   try {
     const user = await getUser(tid);
     if (!user) {
-      return NextResponse.json({ authed: false, botUsername, ownerTg });
+      return NextResponse.json({ authed: false, botUsername, ownerTg, version: APP_VERSION });
     }
     const allowance = rowAllowance(user);
     return NextResponse.json({
