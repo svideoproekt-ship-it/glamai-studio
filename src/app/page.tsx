@@ -389,16 +389,27 @@ function Studio() {
         {/* Остаток бесплатных генераций — крупно, видно на любом экране */}
         {profile && !profile.subscriptionActive && (
           <div
-            className="mb-4 flex items-center gap-2.5 rounded-2xl border border-[#8CE99A]/40 bg-[#043E21]/60 px-4 py-3 text-sm text-[#F8F1E1]"
+            className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-2xl border border-[#8CE99A]/40 bg-[#043E21]/60 px-4 py-3 text-sm text-[#F8F1E1]"
             data-testid="trial-banner"
           >
             <Sparkles className="h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
-            <p>
+            <p className="min-w-0 flex-1">
               Бесплатно: <b>{profile.remaining} из {profile.total}</b> образов
               {profile.remaining > 0
                 ? " — без карты. Дальше — подписка от 690 ₽/мес."
-                : " — оформите подписку, чтобы продолжить."}
+                : " — пробные образы закончились."}
             </p>
+            {profile.remaining === 0 && (
+              <Button
+                size="sm"
+                onClick={() => openPaywall()}
+                className="glam-btn shrink-0 font-bold"
+                data-testid="open-paywall"
+              >
+                <Sparkles className="h-4 w-4" aria-hidden />
+                Выбрать тариф
+              </Button>
+            )}
           </div>
         )}
         <div className="grid items-start gap-6 lg:grid-cols-[430px_1fr]">
