@@ -13,6 +13,8 @@ export interface PayInfo {
   card: string;
   /** Имя получателя на карте, напр. «Иван И.» */
   holder: string;
+  /** Ссылка «Перевести по ссылке» из банка (СБП) — клиент платит в 2 клика, без набора карты */
+  link: string;
 }
 
 export function getPayInfo(): PayInfo {
@@ -20,6 +22,7 @@ export function getPayInfo(): PayInfo {
     bank: process.env.PAYMENT_BANK?.trim() ?? "",
     card: process.env.PAYMENT_CARD_NUMBER?.trim() ?? "",
     holder: process.env.PAYMENT_CARD_OWNER?.trim() ?? "",
+    link: process.env.PAYMENT_LINK?.trim() ?? "",
   };
 }
 
