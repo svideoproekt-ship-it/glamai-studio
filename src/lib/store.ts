@@ -203,13 +203,21 @@ export async function listUsers(limit = 100): Promise<AdminUserRow[]> {
   return rows.map((r) => ({ ...toRow(r), generationsTotal: Number(r.generations_total) }));
 }
 
-/** "123456789" | "@username" | "username" → telegram id либо null. */
+/** "123456789" | "@username" | "username" → telegram id либо null.
+ *  Числовой ввод — это Telegram ID, и он ОБЯЗАН быть в базе: без проверки
+ *  любой набор цифр (например, вползшая в поле цена 690) проходил как
+ *  «успех» — UPDATE не трогал ни одну строку, а админка рапортовала
+ *  «Подписка выдана». */
 async function resolveUser(user: string): Promise<number | null> {
   const raw = user.trim();
   if (!raw) return null;
-  if (/^\d+$/.test(raw)) return Number(raw);
-  const username = raw.replace(/^@/, "").toLowerCase();
   const sql = getSql();
+  if (/^\d+$/.test(raw)) {
+    const id = Number(raw);
+    const rows = await sql`SELECT telegram_id FROM glam_users WHERE telegram_id = ${id} LIMIT 1`;
+    return rows[0] ? Number(rows[0].telegram_id) : null;
+  }
+  const username = raw.replace(/^@/, "").toLowerCase();
   const rows = await sql`SELECT telegram_id FROM glam_users WHERE username = ${username} LIMIT 1`;
   return rows[0] ? Number(rows[0].telegram_id) : null;
 }
@@ -238,6 +246,7 @@ export async function grantPlan(
       monthly_reset_ym = NULL
     WHERE telegram_id = ${id}
     RETURNING subscription_until`;
+  if (rows.length === 0) return null; // пользователь исчез между проверками — не рапортуем успех
   const until = rows[0]?.subscription_until;
   return {
     id,
@@ -251,14 +260,15 @@ export async function revokeSubscription(user: string): Promise<number | null> {
   if (id === null) return null;
   const sql = getSql();
   await ensureSchema();
-  await sql`
+  const rows = await sql`
     UPDATE glam_users SET
       plan = 'trial',
       subscription_until = NULL,
       monthly_used = 0,
       monthly_reset_ym = NULL
-    WHERE telegram_id = ${id}`;
-  return id;
+    WHERE telegram_id = ${id}
+    RETURNING telegram_id`;
+  return rows[0] ? Number(rows[0].telegram_id) : null;
 }
 
 /** Обнуляет пробный лимит (например, для честного повторного триала). */
@@ -267,8 +277,8 @@ export async function resetTrial(user: string): Promise<number | null> {
   if (id === null) return null;
   const sql = getSql();
   await ensureSchema();
-  await sql`UPDATE glam_users SET trial_used = 0 WHERE telegram_id = ${id}`;
-  return id;
+  const rows = await sql`UPDATE glam_users SET trial_used = 0 WHERE telegram_id = ${id} RETURNING telegram_id`;
+  return rows[0] ? Number(rows[0].telegram_id) : null;
 }
 
 /** Статистика для админки. */

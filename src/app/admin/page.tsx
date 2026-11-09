@@ -248,7 +248,7 @@ export default function AdminPage() {
                 <Input
                   value={grantUser}
                   onChange={(e) => setGrantUser(e.target.value)}
-                  placeholder="@username или 123456789"
+                  placeholder="@username или 123456789 (НЕ сумма)"
                   className="w-56 border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-[#6F4E37]"
                   aria-label="Пользователь"
                 />
@@ -385,6 +385,10 @@ export default function AdminPage() {
             )}
 
             <section className="green-card overflow-hidden rounded-3xl">
+              <p className="px-4 pt-3 text-xs text-[#F8F1E1]/60">
+                Подсказка: нажми на @username или ID в строке мастера — он подставится в поле
+                «Выдать» выше. Сумма (690 ₽) в это поле не вводится — она считается сама.
+              </p>
               <div className="max-h-[60vh] overflow-auto">
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead className="sticky top-0 bg-[#043E21] text-xs uppercase tracking-wide text-[#F8F1E1]/60">
@@ -412,9 +416,17 @@ export default function AdminPage() {
                         <tr key={u.telegramId} className="border-t border-[#F8F1E1]/10">
                           <td className="px-4 py-3">
                             <p className="font-semibold">{u.firstName ?? "—"}</p>
-                            <p className="text-xs text-[#F8F1E1]/60">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setGrantUser(u.username ? `@${u.username}` : String(u.telegramId))
+                              }
+                              className="text-left text-xs text-[#8CE99A] underline-offset-2 hover:underline"
+                              title="Подставить в поле выдачи"
+                              data-testid={`pick-user-${u.telegramId}`}
+                            >
                               {u.username ? `@${u.username}` : ""} · {u.telegramId}
-                            </p>
+                            </button>
                           </td>
                           <td className="px-3 py-3">
                             <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badge.cls}`}>

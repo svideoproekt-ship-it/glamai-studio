@@ -70,7 +70,11 @@ export async function POST(req: NextRequest) {
       const grant = await grantPlan(body.user ?? "", plan, Number(body.days) || 30);
       if (grant === null) {
         return NextResponse.json(
-          { ok: false, error: "Пользователь не найден. Он должен хотя бы раз войти на сайт." },
+          {
+            ok: false,
+            error:
+              "Пользователь не найден. В поле нужен @username или Telegram ID мастера — они видны в таблице ниже (это НЕ сумма оплаты). Мастер должен хотя бы раз войти на сайт.",
+          },
           { status: 404 }
         );
       }
