@@ -5,10 +5,12 @@
 // подписки после ручной оплаты (перевод → «Выдать подписку»).
 
 import { useCallback, useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { KeyRound, Loader2, RefreshCw, Sparkles, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PLAN_PRICES, planLabel } from "@/lib/plan";
+import { payQrPayload, type PayInfo } from "@/lib/pay";
 
 interface AdminUser {
   telegramId: number;
@@ -57,6 +59,8 @@ export default function AdminPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [pay, setPay] = useState<PayInfo | null>(null);
+  const [qrData, setQrData] = useState<string | null>(null);
   const [grantUser, setGrantUser] = useState("");
   const [grantPlan, setGrantPlan] = useState<"start" | "salon">("start");
   const [grantDays, setGrantDays] = useState("30");
@@ -73,6 +77,7 @@ export default function AdminPage() {
       if (!data.ok) throw new Error(data.error ?? "Не удалось загрузить список");
       setUsers(data.users ?? []);
       setStats(data.stats ?? null);
+      setPay(data.pay ?? null);
       setAuthed(true);
     } catch (e) {
       setAuthed(false);
@@ -83,6 +88,31 @@ export default function AdminPage() {
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  // QR-код оплаты для печати: ссылка банка или телефон СБП — то же,
+  // что видит клиент в paywall
+  useEffect(() => {
+    const payload = pay ? payQrPayload(pay) : "";
+    if (!payload) {
+      setQrData(null);
+      return;
+    }
+    let alive = true;
+    QRCode.toDataURL(payload, {
+      width: 512,
+      margin: 2,
+      color: { dark: "#043E21", light: "#FFFFFF" },
+    })
+      .then((url) => {
+        if (alive) setQrData(url);
+      })
+      .catch(() => {
+        if (alive) setQrData(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [pay]);
 
   const login = async () => {
     setBusy(true);
@@ -309,6 +339,39 @@ export default function AdminPage() {
                 </span>
               </div>
             </section>
+
+            {/* QR-код оплаты: тот же, что в paywall; можно скачать PNG и распечатать */}
+            {pay && payQrPayload(pay) ? (
+              <section className="green-card mb-5 rounded-3xl p-5" data-testid="admin-qr">
+                <h2 className="mb-2 font-serif text-lg font-bold">QR-код оплаты</h2>
+                <div className="flex flex-wrap items-start gap-4">
+                  {qrData && (
+                    <span className="rounded-2xl bg-white p-2 shadow">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={qrData} alt="QR-код для оплаты" className="h-44 w-44" />
+                    </span>
+                  )}
+                  <div className="max-w-sm text-sm text-[#F8F1E1]/80">
+                    <p>
+                      Мастер наводит камеру телефона — {pay.link ? "откроется банк сразу с переводом" : "появится номер для перевода по СБП"}. QR
+                      можно распечатать и повесить в студии, вставить в пост или отправить мастеру в чате.
+                    </p>
+                    {qrData && (
+                      <a href={qrData} download="glamai-oplata-qr.png" className="mt-3 inline-block">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                          data-testid="download-qr"
+                        >
+                          Скачать PNG для печати
+                        </Button>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
             {error && (
               <p className="mb-4 rounded-xl border border-red-300/60 bg-red-50/95 p-3 text-sm text-red-900">

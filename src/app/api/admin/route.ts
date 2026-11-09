@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_COOKIE, signAdmin, verifyAdmin } from "@/lib/auth";
+import { getPayInfo } from "@/lib/pay";
 import { adminStats, grantPlan, listUsers, resetTrial, revokeSubscription } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest) {
   }
   try {
     const [users, stats] = await Promise.all([listUsers(200), adminStats()]);
-    return NextResponse.json({ ok: true, users, stats });
+    // pay — публичные реквизиты оплаты: нужны админке для QR-кода «для печати»
+    return NextResponse.json({ ok: true, users, stats, pay: getPayInfo() });
   } catch (err) {
     console.error("[admin] ошибка БД:", err instanceof Error ? err.message : err);
     return NextResponse.json(

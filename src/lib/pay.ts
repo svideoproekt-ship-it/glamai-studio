@@ -7,26 +7,36 @@
 // через paywall никогда не передаются.
 
 export interface PayInfo {
-  /** Банк получателя, напр. «Т-Банк» */
+  /** Банк получателя, напр. «Сбер» */
   bank: string;
+  /** Номер телефона для перевода по СБП (самый простой путь для клиента) */
+  phone: string;
   /** Номер карты получателя, напр. «2200 7007 1234 5678» */
   card: string;
   /** Имя получателя на карте, напр. «Иван И.» */
   holder: string;
-  /** Ссылка «Перевести по ссылке» из банка (СБП) — клиент платит в 2 клика, без набора карты */
+  /** Ссылка «Перевести по ссылке» из банка (СБП) — если получится создать */
   link: string;
 }
 
 export function getPayInfo(): PayInfo {
   return {
     bank: process.env.PAYMENT_BANK?.trim() ?? "",
+    phone: process.env.PAYMENT_PHONE?.trim() ?? "",
     card: process.env.PAYMENT_CARD_NUMBER?.trim() ?? "",
     holder: process.env.PAYMENT_CARD_OWNER?.trim() ?? "",
     link: process.env.PAYMENT_LINK?.trim() ?? "",
   };
 }
 
-/** Все три поля заданы → клиенту можно показать готовые реквизиты. */
+/** Есть хоть один способ оплаты → клиенту можно показать реквизиты. */
 export function payInfoComplete(p: PayInfo): boolean {
-  return p.bank.length > 0 && p.card.length > 0 && p.holder.length > 0;
+  return p.phone.length > 0 || p.card.length > 0;
+}
+
+/** Что закодировать в QR-код оплаты: сначала ссылка банка (лучший опыт —
+ *  банк открывается сразу с переводом), если её нет — телефон СБП
+ *  (камера покажет номер, клиент вставит его в своём банке). */
+export function payQrPayload(p: PayInfo): string {
+  return p.link || p.phone || "";
 }

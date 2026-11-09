@@ -31,9 +31,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import QRCode from "qrcode";
 import { APP_VERSION } from "@/lib/version";
 import { PLAN_PRICES } from "@/lib/plan";
-import { payInfoComplete, type PayInfo } from "@/lib/pay";
+import { payInfoComplete, payQrPayload, type PayInfo } from "@/lib/pay";
 
 export interface GlamProfile {
   telegramId: number;
@@ -76,6 +77,8 @@ interface TgWebApp {
   initData?: string;
   ready?: () => void;
   expand?: () => void;
+  /** «android»/«ios» — телефон, «tdesktop»/«macos»/«web» — компьютер */
+  platform?: string;
 }
 
 function getTelegramWebApp(): TgWebApp | null {
@@ -482,15 +485,59 @@ function PaywallDialog({
   pay?: PayInfo;
   profile: GlamProfile | null;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"phone" | "card" | null>(null);
+  const [qrData, setQrData] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
+  const [isMobile, setIsMobile] = useState(true);
   const requisitesReady = pay ? payInfoComplete(pay) : false;
+  const qrPayload = pay ? payQrPayload(pay) : "";
+  const isOpen = payload !== null;
 
-  const copyCard = async () => {
-    if (!pay?.card) return;
+  // QR-код генерируем на клиенте из ссылки банка или телефона СБП.
+  // На телефоне свёрнут по умолчанию (свой же экран камерой не отсканировать),
+  // на компьютере (Telegram Desktop/Web) развёрнут сразу.
+  useEffect(() => {
+    if (!isOpen || !qrPayload) {
+      setQrData(null);
+      return;
+    }
+    let alive = true;
+    QRCode.toDataURL(qrPayload, {
+      width: 512,
+      margin: 2,
+      color: { dark: "#043E21", light: "#FFFFFF" },
+    })
+      .then((url) => {
+        if (alive) setQrData(url);
+      })
+      .catch(() => {
+        if (alive) setQrData(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, qrPayload]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let mobile = true;
     try {
-      await navigator.clipboard.writeText(pay.card.replace(/\s/g, ""));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      const platform = getTelegramWebApp()?.platform ?? "";
+      if (platform) mobile = /android|ios/i.test(platform);
+      else mobile = window.matchMedia("(max-width: 767px)").matches;
+    } catch {
+      mobile = true;
+    }
+    setIsMobile(mobile);
+    setShowQr(!mobile);
+  }, [isOpen]);
+
+  const copyText = async (value: string, which: "phone" | "card") => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value.replace(/\s/g, ""));
+      setCopied(which);
+      setTimeout(() => setCopied(null), 2000);
     } catch {
       /* буфер обмена недоступен — номер и так виден текстом */
     }
@@ -570,6 +617,13 @@ function PaywallDialog({
                     <li>2. Нажмите «Выбрать тариф» — откроется чат, отправьте скриншот чека.</li>
                     <li>3. Подписка включается вручную, обычно за 5–15 минут.</li>
                   </>
+                ) : pay.phone ? (
+                  <>
+                    <li>1. В приложении СВОЕГО банка выберите «Перевести по номеру телефона (СБП)».</li>
+                    <li>2. Введите номер телефона ниже, сумма — как у выбранного тарифа. Банк покажет имя получателя для проверки.</li>
+                    <li>3. Нажмите «Выбрать тариф» — откроется чат, отправьте скриншот чека.</li>
+                    <li>4. Подписка включается вручную, обычно за 5–15 минут.</li>
+                  </>
                 ) : (
                   <>
                     <li>1. Переведите сумму за месяц по реквизитам ниже.</li>
@@ -579,27 +633,50 @@ function PaywallDialog({
                 )}
               </ol>
               <div className="mt-3 space-y-1.5 text-sm text-[#F8F1E1]">
-                <p>
-                  <span className="text-[#F8F1E1]/60">Банк:</span> {pay.bank}
-                </p>
-                <p>
-                  <span className="text-[#F8F1E1]/60">Получатель:</span> {pay.holder}
-                </p>
-                <div className="flex items-center gap-2">
+                {pay.bank && (
                   <p>
-                    <span className="text-[#F8F1E1]/60">Карта:</span>{" "}
-                    <b className="font-mono tracking-wider">{pay.card}</b>
+                    <span className="text-[#F8F1E1]/60">Банк:</span> {pay.bank}
                   </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void copyCard()}
-                    className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
-                    aria-label="Скопировать номер карты"
-                  >
-                    {copied ? "Скопировано ✓" : "Копировать"}
-                  </Button>
-                </div>
+                )}
+                {pay.holder && (
+                  <p>
+                    <span className="text-[#F8F1E1]/60">Получатель:</span> {pay.holder}
+                  </p>
+                )}
+                {pay.phone && (
+                  <div className="flex items-center gap-2">
+                    <p>
+                      <span className="text-[#F8F1E1]/60">Телефон (СБП):</span>{" "}
+                      <b className="font-mono tracking-wider">{pay.phone}</b>
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void copyText(pay.phone, "phone")}
+                      className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
+                      aria-label="Скопировать телефон"
+                    >
+                      {copied === "phone" ? "Скопировано ✓" : "Копировать"}
+                    </Button>
+                  </div>
+                )}
+                {pay.card && (
+                  <div className="flex items-center gap-2">
+                    <p>
+                      <span className="text-[#F8F1E1]/60">Карта:</span>{" "}
+                      <b className="font-mono tracking-wider">{pay.card}</b>
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void copyText(pay.card, "card")}
+                      className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
+                      aria-label="Скопировать номер карты"
+                    >
+                      {copied === "card" ? "Скопировано ✓" : "Копировать"}
+                    </Button>
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -615,11 +692,43 @@ function PaywallDialog({
               <li>3. После оплаты подписку включат за 5–15 минут.</li>
             </ol>
           )}
+          {/* QR-код оплаты: со ссылки банка или с телефона СБП */}
+          {qrPayload && (
+            <div className="mt-3 rounded-xl border border-[#F8F1E1]/15 bg-[#043E21]/60 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-[#F8F1E1]">QR-код для оплаты</p>
+                {isMobile && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowQr((v) => !v)}
+                    className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
+                    data-testid="pay-qr-toggle"
+                  >
+                    {showQr ? "Скрыть QR-код" : "Показать QR-код"}
+                  </Button>
+                )}
+              </div>
+              {showQr && qrData && (
+                <div className="mt-2 flex flex-col items-center gap-2" data-testid="pay-qr">
+                  <span className="rounded-2xl bg-white p-2 shadow">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={qrData} alt="QR-код для оплаты" className="h-40 w-40" />
+                  </span>
+                  <p className="text-center text-xs text-[#F8F1E1]/70" data-testid="pay-qr-caption">
+                    {pay?.link
+                      ? "С другого телефона или с компьютера: наведите камеру — банк откроется сразу с переводом."
+                      : "С другого телефона или с компьютера: наведите камеру — появится номер для перевода по СБП, вставьте его в своём банке."}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           {!requisitesReady && (
             <p className="mt-2 rounded-xl bg-amber-50/95 p-2.5 text-xs text-amber-900">
-              Реквизиты не заданы на сервере. Владелец: добавьте PAYMENT_BANK,
-              PAYMENT_CARD_NUMBER и PAYMENT_CARD_OWNER в Vercel → Settings →
-              Environment Variables и сделайте Redeploy — тогда карта появится здесь.
+              Реквизиты не заданы на сервере. Владелец: добавьте PAYMENT_PHONE (перевод
+              по СБП) и/или PAYMENT_BANK, PAYMENT_CARD_NUMBER, PAYMENT_CARD_OWNER в Vercel →
+              Settings → Environment Variables и сделайте Redeploy — реквизиты появятся здесь.
             </p>
           )}
         </div>
