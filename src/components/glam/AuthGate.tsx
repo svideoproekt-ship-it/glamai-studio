@@ -587,7 +587,22 @@ function PaywallDialog({
                 ))}
               </ul>
               {tgLink(p.key) ? (
-                <a href={tgLink(p.key)} target="_blank" rel="noreferrer" className="mt-3 block">
+                <a
+                  href={tgLink(p.key)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 block"
+                  onClick={() => {
+                    // Заявка на подписку летит в /admin владельца: ID подставится сам.
+                    // Fire-and-forget c keepalive — не мешаем открытию чата.
+                    void fetch("/api/pay-request", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ plan: p.key }),
+                      keepalive: true,
+                    }).catch(() => {});
+                  }}
+                >
                   <Button className="glam-btn h-10 w-full text-sm font-bold" data-testid={`pay-${p.key}`}>
                     <Sparkles className="h-4 w-4" aria-hidden />
                     Выбрать {p.title} — {fmtRub(PLAN_PRICES[p.key])} ₽

@@ -7,7 +7,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_COOKIE, signAdmin, verifyAdmin } from "@/lib/auth";
 import { getPayInfo } from "@/lib/pay";
-import { adminStats, grantPlan, listUsers, resetTrial, revokeSubscription } from "@/lib/store";
+import {
+  adminStats,
+  grantPlan,
+  listPayRequests,
+  listUsers,
+  resetTrial,
+  revokeSubscription,
+  setPayRequestStatus,
+} from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -28,9 +36,13 @@ export async function GET(req: NextRequest) {
     return unauthorized();
   }
   try {
-    const [users, stats] = await Promise.all([listUsers(200), adminStats()]);
-    // pay — публичные реквизиты оплаты: нужны админке для QR-кода «для печати»
-    return NextResponse.json({ ok: true, users, stats, pay: getPayInfo() });
+    const [users, stats, requests] = await Promise.all([
+      listUsers(200),
+      adminStats(),
+      listPayRequests(20),
+    ]);
+    // pay — публичные реквизиты оплаты (для QR), requests — заявки на подписку
+    return NextResponse.json({ ok: true, users, stats, pay: getPayInfo(), requests });
   } catch (err) {
     console.error("[admin] ошибка БД:", err instanceof Error ? err.message : err);
     return NextResponse.json(
@@ -91,6 +103,17 @@ export async function POST(req: NextRequest) {
       const id = await resetTrial(body.user ?? "");
       if (id === null) {
         return NextResponse.json({ ok: false, error: "Пользователь не найден." }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, id });
+    }
+    if (body.action === "request_done" || body.action === "request_dismiss") {
+      const id = Number(body.id);
+      if (!Number.isFinite(id)) {
+        return NextResponse.json({ ok: false, error: "Не указана заявка." }, { status: 400 });
+      }
+      const done = await setPayRequestStatus(id, body.action === "request_done" ? "done" : "dismissed");
+      if (!done) {
+        return NextResponse.json({ ok: false, error: "Заявка не найдена или уже обработана." }, { status: 404 });
       }
       return NextResponse.json({ ok: true, id });
     }

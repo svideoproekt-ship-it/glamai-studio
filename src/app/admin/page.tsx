@@ -31,9 +31,27 @@ interface Stats {
   generations: number;
 }
 
+interface PayRequest {
+  id: number;
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  plan: string;
+  createdAt: string;
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "2-digit" });
+}
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function planBadge(plan: string, untilIso: string | null): { text: string; cls: string } {
@@ -60,6 +78,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [pay, setPay] = useState<PayInfo | null>(null);
+  const [requests, setRequests] = useState<PayRequest[]>([]);
   const [qrData, setQrData] = useState<string | null>(null);
   const [grantUser, setGrantUser] = useState("");
   const [grantPlan, setGrantPlan] = useState<"start" | "salon">("start");
@@ -78,6 +97,7 @@ export default function AdminPage() {
       setUsers(data.users ?? []);
       setStats(data.stats ?? null);
       setPay(data.pay ?? null);
+      setRequests(data.requests ?? []);
       setAuthed(true);
     } catch (e) {
       setAuthed(false);
@@ -150,6 +170,46 @@ export default function AdminPage() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error ?? "Операция не удалась");
       setNotice(typeof okMsg === "function" ? okMsg(data) : okMsg);
+      await loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка операции");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Выдача по заявке в один клик: ID уже известен (пришёл из paywall по
+  // подписанной сессии), владельцу остаётся сверить чек и нажать кнопку
+  const handleRequestGrant = async (r: PayRequest) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "grant",
+          user: String(r.telegramId),
+          plan: r.plan === "salon" ? "salon" : "start",
+          days: Number(grantDays) || 30,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Не удалось выдать подписку");
+      await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request_done", id: r.id }),
+      });
+      const until = data.untilIso
+        ? new Date(data.untilIso).toLocaleDateString("ru-RU", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : "";
+      setNotice(`Подписка выдана ✅${until ? ` — действует до ${until}` : ""}`);
       await loadList();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка операции");
@@ -339,6 +399,64 @@ export default function AdminPage() {
                 </span>
               </div>
             </section>
+
+            {/* Заявки на подписку: клиент нажал «Выбрать тариф» — ID уже здесь */}
+            {requests.length > 0 && (
+              <section className="green-card mb-5 rounded-3xl p-5" data-testid="pay-requests">
+                <h2 className="mb-1 font-serif text-lg font-bold">Заявки на подписку</h2>
+                <p className="mb-3 text-sm text-[#F8F1E1]/75">
+                  Мастер нажал «Выбрать тариф» — его ID уже здесь. Сверьте чек в чате и выдавайте
+                  одной кнопкой. Срок берётся из поля «Срок» выше, цена пересчитана автоматически.
+                </p>
+                <div className="space-y-2">
+                  {requests.map((r) => {
+                    const planKey = r.plan === "salon" ? "salon" : "start";
+                    const price = Math.round((PLAN_PRICES[planKey] * (Number(grantDays) || 30)) / 30);
+                    return (
+                      <div
+                        key={r.id}
+                        className="flex flex-wrap items-center gap-2 rounded-xl border border-[#F8F1E1]/15 bg-[#06301B]/70 p-3"
+                        data-testid={`req-row-${r.id}`}
+                      >
+                        <div className="min-w-40">
+                          <p className="text-sm font-semibold">{r.firstName ?? "Мастер"}</p>
+                          <p className="text-xs text-[#F8F1E1]/60">
+                            {r.username ? `@${r.username} · ` : ""}ID {r.telegramId} ·{" "}
+                            {fmtDateTime(r.createdAt)}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold">
+                          {planKey === "salon" ? "Салон" : "Старт"}
+                        </span>
+                        <div className="ml-auto flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            className="glam-btn"
+                            disabled={busy}
+                            onClick={() => void handleRequestGrant(r)}
+                            data-testid={`req-grant-${r.id}`}
+                          >
+                            Выдать · {grantDaysNum} дн. · {price.toLocaleString("ru-RU")} ₽
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                            disabled={busy}
+                            onClick={() =>
+                              void act({ action: "request_dismiss", id: r.id }, "Заявка скрыта")
+                            }
+                            data-testid={`req-dismiss-${r.id}`}
+                          >
+                            Скрыть
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             {/* QR-код оплаты: тот же, что в paywall; можно скачать PNG и распечатать */}
             {pay && payQrPayload(pay) ? (

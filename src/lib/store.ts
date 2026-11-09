@@ -74,6 +74,20 @@ export function ensureSchema(): Promise<void> {
       await sql`
         CREATE INDEX IF NOT EXISTS glam_generations_user_idx
         ON glam_generations (telegram_id, created_at)`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS glam_pay_requests (
+          id          BIGSERIAL PRIMARY KEY,
+          telegram_id BIGINT NOT NULL,
+          username    TEXT,
+          first_name  TEXT,
+          plan        TEXT NOT NULL,
+          status      TEXT NOT NULL DEFAULT 'pending',
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          handled_at  TIMESTAMPTZ
+        )`;
+      await sql`
+        CREATE INDEX IF NOT EXISTS glam_pay_requests_pending_idx
+        ON glam_pay_requests (status, created_at)`;
     })().catch((err) => {
       schemaReady = null; // следующая попытка повторит создание
       throw err;
@@ -291,4 +305,74 @@ export async function adminStats(): Promise<{ total: number; paying: number; gen
     FROM glam_users`;
   const [g] = await sql`SELECT COUNT(*)::int AS total FROM glam_generations`;
   return { total: Number(u?.total ?? 0), paying: Number(u?.paying ?? 0), generations: Number(g?.total ?? 0) };
+}
+
+// ---------- Заявки на подписку (автоподстановка ID в админку) ----------
+
+export interface PayRequestRow {
+  id: number;
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  plan: string;
+  createdAt: Date;
+}
+
+/**
+ * Клиент нажал «Выбрать тариф» → заявка уходит в админку, владельцу больше
+ * не нужно перепечатывать ID руками. Дубль в течение 12 часов не создаётся,
+ * но время существующей заявки обновляется — она поднимается наверх списка.
+ */
+export async function createPayRequest(
+  u: { telegramId: number; username: string | null; firstName: string | null },
+  plan: "start" | "salon"
+): Promise<void> {
+  const sql = getSql();
+  await ensureSchema();
+  await sql`
+    UPDATE glam_pay_requests SET created_at = now()
+    WHERE telegram_id = ${u.telegramId} AND plan = ${plan}
+      AND status = 'pending' AND created_at > now() - interval '12 hours'`;
+  await sql`
+    INSERT INTO glam_pay_requests (telegram_id, username, first_name, plan)
+    SELECT ${u.telegramId}, ${u.username}, ${u.firstName}, ${plan}
+    WHERE NOT EXISTS (
+      SELECT 1 FROM glam_pay_requests
+      WHERE telegram_id = ${u.telegramId} AND plan = ${plan}
+        AND status = 'pending' AND created_at > now() - interval '12 hours'
+    )`;
+}
+
+/** Ждущие оплаты заявки — для блока «Заявки на подписку» в /admin. */
+export async function listPayRequests(limit = 20): Promise<PayRequestRow[]> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT id, telegram_id, username, first_name, plan, created_at
+    FROM glam_pay_requests
+    WHERE status = 'pending'
+    ORDER BY created_at DESC
+    LIMIT ${Math.min(50, Math.max(1, limit))}`;
+  return rows.map((r) => ({
+    id: Number(r.id),
+    telegramId: Number(r.telegram_id),
+    username: (r.username as string | null) ?? null,
+    firstName: (r.first_name as string | null) ?? null,
+    plan: String(r.plan),
+    createdAt: new Date(r.created_at as unknown as string),
+  }));
+}
+
+/** Помечает заявку обработанной: done — подписка выдана, dismissed — скрыта. */
+export async function setPayRequestStatus(
+  id: number,
+  status: "done" | "dismissed"
+): Promise<boolean> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    UPDATE glam_pay_requests SET status = ${status}, handled_at = now()
+    WHERE id = ${id} AND status = 'pending'
+    RETURNING id`;
+  return rows.length > 0;
 }
