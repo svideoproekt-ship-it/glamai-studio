@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Download, Info, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { saveImageFile } from "@/lib/download";
 import {
   Collapsible,
   CollapsibleContent,
@@ -42,6 +43,8 @@ export function ResultPanel({
   onReset,
 }: ResultPanelProps) {
   const [tick, setTick] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveHint, setSaveHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading) return;
@@ -113,6 +116,26 @@ export function ResultPanel({
     );
   }
 
+  // Сохранение результата: в Telegram (особенно на iPhone) простой
+  // <a download> с data-ссылкой молча не срабатывает — используем цепочку
+  // «Поделиться» → blob-скачивание → новая вкладка (см. src/lib/download.ts)
+  const handleSave = async () => {
+    if (!result || saving) return;
+    setSaving(true);
+    setSaveHint(null);
+    try {
+      const how = await saveImageFile(result, `glamai-look-${Date.now()}`);
+      if (how === "tab" || how === "opened-raw") {
+        setSaveHint(
+          "Открыли образ в новой вкладке — удерживайте палец на картинке и выберите «Сохранить в Фото» (на компьютере: правый клик → «Сохранить как»)."
+        );
+        setTimeout(() => setSaveHint(null), 15_000);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!result) {
     return (
       <div className="green-window mx-auto flex aspect-[3/4] w-full max-w-md flex-col items-center justify-center gap-4 rounded-2xl px-6 text-center">
@@ -158,25 +181,32 @@ export function ResultPanel({
       )}
       <BeforeAfterSlider before={original ?? result} after={result} alt="Образ GlamAI" />
 
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <a
-          href={result}
-          download={`glamai-look-${Date.now()}.png`}
-          aria-label="Скачать образ PNG"
-        >
-          <Button className="glam-btn h-10 font-semibold">
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button
+            className="glam-btn h-10 font-semibold"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            aria-label="Скачать образ"
+            data-testid="download-look"
+          >
             <Download className="h-4 w-4" />
-            Скачать образ
+            {saving ? "Сохраняем…" : "Скачать образ"}
           </Button>
-        </a>
-        <Button
-          variant="ghost"
-          className="text-muted-foreground hover:text-white"
-          onClick={onReset}
-        >
-          <RotateCcw className="h-4 w-4" />
-          Новый образ
-        </Button>
+          <Button
+            variant="ghost"
+            className="text-muted-foreground hover:text-white"
+            onClick={onReset}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Новый образ
+          </Button>
+        </div>
+        {saveHint && (
+          <p className="max-w-md text-center text-xs leading-relaxed text-[#F8F1E1]/75">
+            {saveHint}
+          </p>
+        )}
       </div>
 
       {usedDescription && (

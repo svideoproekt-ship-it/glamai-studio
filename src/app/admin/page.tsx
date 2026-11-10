@@ -10,6 +10,7 @@ import { KeyRound, Loader2, RefreshCw, Sparkles, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PLAN_PRICES, planLabel } from "@/lib/plan";
+import { saveImageFile } from "@/lib/download";
 import { payQrPayload, type PayInfo } from "@/lib/pay";
 
 interface AdminUser {
@@ -475,16 +476,17 @@ export default function AdminPage() {
                       можно распечатать и повесить в студии, вставить в пост или отправить мастеру в чате.
                     </p>
                     {qrData && (
-                      <a href={qrData} download="glamai-oplata-qr.png" className="mt-3 inline-block">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
-                          data-testid="download-qr"
-                        >
-                          Скачать PNG для печати
-                        </Button>
-                      </a>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                        data-testid="download-qr"
+                        onClick={() => {
+                          void saveImageFile(qrData, "glamai-oplata-qr");
+                        }}
+                      >
+                        Скачать PNG для печати
+                      </Button>
                     )}
                   </div>
                 </div>
