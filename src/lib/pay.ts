@@ -17,6 +17,8 @@ export interface PayInfo {
   holder: string;
   /** Ссылка «Перевести по ссылке» из банка (СБП) — если получится создать */
   link: string;
+  /** Ссылка на профиль владельца в мессенджере MAX (max.ru) — необязательно */
+  maxLink: string;
 }
 
 export function getPayInfo(): PayInfo {
@@ -26,6 +28,7 @@ export function getPayInfo(): PayInfo {
     card: process.env.PAYMENT_CARD_NUMBER?.trim() ?? "",
     holder: process.env.PAYMENT_CARD_OWNER?.trim() ?? "",
     link: process.env.PAYMENT_LINK?.trim() ?? "",
+    maxLink: process.env.OWNER_MAX_LINK?.trim() ?? "",
   };
 }
 

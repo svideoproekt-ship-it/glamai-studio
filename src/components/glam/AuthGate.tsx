@@ -22,7 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AlertTriangle, Loader2, LogIn, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, LogIn, MessageCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -79,6 +79,11 @@ interface TgWebApp {
   expand?: () => void;
   /** «android»/«ios» — телефон, «tdesktop»/«macos»/«web» — компьютер */
   platform?: string;
+  /** Покрасить шапку и фон Telegram в цвет студии: без этого сверху и снизу
+   *  остаются чёрные полосы системных панелей («траурная рамка») */
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  setBottomBarColor?: (color: string) => void;
 }
 
 function getTelegramWebApp(): TgWebApp | null {
@@ -91,6 +96,25 @@ function isTelegramClient(): boolean {
   // Внутренний браузер Telegram (iOS/Android/Desktop) обычно помечает UA,
   // но надеемся не на него, а на initData — это только запасной признак.
   return /Telegram/i.test(window.navigator.userAgent);
+}
+
+/** Красим панели Telegram под цвет студии и раскрываем на весь экран.
+ *  Убирает чёрные прямоугольники сверху/снизу в мобильной версии. */
+function decorateTelegram(app: TgWebApp | null): void {
+  if (!app) return;
+  try {
+    app.ready?.();
+    app.expand?.();
+  } catch {
+    /* не критично */
+  }
+  try {
+    app.setHeaderColor?.("#043E21");
+    app.setBackgroundColor?.("#043E21");
+    app.setBottomBarColor?.("#043E21");
+  } catch {
+    /* старые клиенты Telegram без этих методов — просто останутся чёрные панели */
+  }
 }
 
 interface AuthContextValue {
@@ -158,12 +182,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     async (tg: TgWebApp) => {
       const initData = tg.initData ?? "";
       if (!initData) return;
-      try {
-        tg.ready?.();
-        tg.expand?.();
-      } catch {
-        /* не критично */
-      }
+      decorateTelegram(tg);
       try {
         const res = await fetch("/api/auth/miniapp", {
           method: "POST",
@@ -198,6 +217,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         setTgEnv("webapp");
         void miniAppLogin(app);
       } else {
+        // Красим панели даже без initData (внутренний браузер Telegram без входа)
+        decorateTelegram(app);
         withoutWebApp();
       }
     };
@@ -489,6 +510,7 @@ function PaywallDialog({
   const [qrData, setQrData] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [isMobile, setIsMobile] = useState(true);
+  const [pcNote, setPcNote] = useState<string | null>(null);
   const requisitesReady = pay ? payInfoComplete(pay) : false;
   const qrPayload = pay ? payQrPayload(pay) : "";
   const isOpen = payload !== null;
@@ -543,9 +565,8 @@ function PaywallDialog({
     }
   };
 
-  // Ссылка в чат владельца с готовым текстом заявки — у каждого тарифа своя
-  const tgLink = (planKey: "start" | "salon") => {
-    if (!ownerTg) return "";
+  // Готовый текст заявки — у каждого тарифа свой
+  const planMessage = (planKey: "start" | "salon"): string => {
     const price = PLAN_PRICES[planKey];
     const me = [
       profile?.username ? `@${profile.username}` : null,
@@ -553,11 +574,45 @@ function PaywallDialog({
     ]
       .filter(Boolean)
       .join(", ");
-    const text =
+    return (
       `Здравствуйте! Хочу подписку «${planKey === "start" ? "Старт" : "Салон"}" ` +
       `GlamAI Studio — ${fmtRub(price)} ₽/мес${me ? `. Я: ${me}` : ""}. ` +
-      `Сейчас переведу оплату по реквизитам и пришлю сюда скриншот чека.`;
-    return `https://t.me/${ownerTg.replace(/^@/, "")}?text=${encodeURIComponent(text)}`;
+      `Сейчас переведу оплату по реквизитам и пришлю сюда скриншот чека.`
+    );
+  };
+
+  const inTelegram = (): boolean => Boolean(getTelegramWebApp()?.platform);
+
+  // Ссылка в чат владельца. Внутри Telegram (любое устройство) — обычная
+  // t.me: чат откроется сам, ничего перехватывать нечему. А вот в ОБЫЧНОМ
+  // браузере на ПК ссылка t.me подхватывается сторонним клиентом,
+  // зарегистрировавшим протокол (Unigram и т.п.) — поэтому там ведём в
+  // Telegram Web, а текст заявки копируем в буфер для вставки в чат.
+  const tgLink = (planKey: "start" | "salon"): string => {
+    if (!ownerTg) return "";
+    const owner = ownerTg.replace(/^@/, "");
+    if (inTelegram() || isMobile) {
+      return `https://t.me/${owner}?text=${encodeURIComponent(planMessage(planKey))}`;
+    }
+    return `https://web.telegram.org/k/#@${owner}`;
+  };
+
+  const handlePlanClick = (planKey: "start" | "salon"): void => {
+    // Заявка на подписку летит в /admin владельца: ID подставится сам.
+    // Fire-and-forget c keepalive — не мешаем открытию чата.
+    void fetch("/api/pay-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: planKey }),
+      keepalive: true,
+    }).catch(() => {});
+    // На ПК в обычном браузере: копируем текст — вставит в чат Telegram Web
+    if (!inTelegram() && !isMobile && ownerTg) {
+      void navigator.clipboard?.writeText(planMessage(planKey)).catch(() => {});
+      setPcNote(
+        "Чат откроется в Telegram Web — текст заявки уже скопирован, вставьте его в чат (Ctrl+V)."
+      );
+    }
   };
 
   return (
@@ -592,16 +647,7 @@ function PaywallDialog({
                   target="_blank"
                   rel="noreferrer"
                   className="mt-3 block"
-                  onClick={() => {
-                    // Заявка на подписку летит в /admin владельца: ID подставится сам.
-                    // Fire-and-forget c keepalive — не мешаем открытию чата.
-                    void fetch("/api/pay-request", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ plan: p.key }),
-                      keepalive: true,
-                    }).catch(() => {});
-                  }}
+                  onClick={() => handlePlanClick(p.key)}
                 >
                   <Button className="glam-btn h-10 w-full text-sm font-bold" data-testid={`pay-${p.key}`}>
                     <Sparkles className="h-4 w-4" aria-hidden />
@@ -612,6 +658,32 @@ function PaywallDialog({
             </div>
           ))}
         </div>
+
+        {/* Подсказка для ПК (обычный браузер): чат откроется в Telegram Web */}
+        {pcNote && (
+          <p className="mt-2 rounded-xl border border-[#F8F1E1]/20 bg-[#06301B]/80 p-2.5 text-center text-xs text-[#F8F1E1]/85">
+            {pcNote}
+          </p>
+        )}
+
+        {/* MAX — российский мессенджер: если владелец задал ссылку,
+            клиент без Telegram сможет написать туда */}
+        {pay?.maxLink && (
+          <div className="mt-1">
+            <a href={pay.maxLink} target="_blank" rel="noreferrer" data-testid="pay-max">
+              <Button
+                variant="outline"
+                className="h-10 w-full border-[#F8F1E1]/30 text-sm text-[#F8F1E1] hover:bg-white/10"
+              >
+                <MessageCircle className="h-4 w-4" aria-hidden />
+                Написать в MAX
+              </Button>
+            </a>
+            <p className="mt-1 text-center text-xs text-[#F8F1E1]/60">
+              Нет Telegram? Владелец отвечает и в российском мессенджере MAX.
+            </p>
+          </div>
+        )}
 
         {/* Реквизиты: клиент видит КУДА и СКОЛЬКО переводить */}
         <div className="mt-3 rounded-2xl border border-[#F8F1E1]/20 bg-[#06301B]/80 p-4" data-testid="pay-requisites">

@@ -53,8 +53,16 @@ function extOf(type: string): string {
 /**
  * Сохраняет картинку из data:/http(s)-URL. Возвращает, каким путём
  * получилось — чтобы интерфейс показал нужную подсказку.
+ *
+ * mode:
+ *   "auto"           — сначала «Поделиться», потом скачивание (по умолчанию);
+ *   "download-only" — пропустить «Поделиться», сразу файл (кнопка «Скачать»).
  */
-export async function saveImageFile(src: string, filename: string): Promise<SaveMethod> {
+export async function saveImageFile(
+  src: string,
+  filename: string,
+  mode: "auto" | "download-only" = "auto"
+): Promise<SaveMethod> {
   if (typeof window === "undefined") return "download";
 
   const blob = await srcToBlob(src);
@@ -69,15 +77,17 @@ export async function saveImageFile(src: string, filename: string): Promise<Save
 
   // 1) Нативное «Поделиться» — единственный надёжный путь на iOS,
   //    на Android ещё и удобный: «Сохранить» или «Отправить клиенту»
-  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-  if ("share" in nav && nav.canShare?.({ files: [file] })) {
-    try {
-      await nav.share({ files: [file], title: "GlamAI Studio" });
-      return "share";
-    } catch (err) {
-      // AbortError — мастер сам закрыл меню «Поделиться», это не сбой
-      if ((err as Error)?.name === "AbortError") return "share";
-      // любая другая ошибка — пробуем скачать по-старинке
+  if (mode === "auto") {
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    if ("share" in nav && nav.canShare?.({ files: [file] })) {
+      try {
+        await nav.share({ files: [file], title: "GlamAI Studio" });
+        return "share";
+      } catch (err) {
+        // AbortError — мастер сам закрыл меню «Поделиться», это не сбой
+        if ((err as Error)?.name === "AbortError") return "share";
+        // любая другая ошибка — пробуем скачать по-старинке
+      }
     }
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, RotateCcw, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Info, RotateCcw, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { saveImageFile } from "@/lib/download";
 import {
@@ -116,18 +116,39 @@ export function ResultPanel({
     );
   }
 
-  // Сохранение результата: в Telegram (особенно на iPhone) простой
-  // <a download> с data-ссылкой молча не срабатывает — используем цепочку
-  // «Поделиться» → blob-скачивание → новая вкладка (см. src/lib/download.ts)
-  const handleSave = async () => {
+  // Кнопка «Поделиться»: в Telegram на телефоне открывает системное меню
+  // («Сохранить в Фото» / переслать клиенту). Простой <a download> с
+  // data-ссылкой в WebView Telegram молча не срабатывает — см. download.ts
+  const handleShare = async () => {
     if (!result || saving) return;
     setSaving(true);
     setSaveHint(null);
     try {
       const how = await saveImageFile(result, `glamai-look-${Date.now()}`);
-      if (how === "tab" || how === "opened-raw") {
+      if (how === "download") {
+        setSaveHint("Файл скачан — ищите glamai-look-… в папке «Загрузки».");
+        setTimeout(() => setSaveHint(null), 8_000);
+      } else if (how === "tab" || how === "opened-raw") {
         setSaveHint(
           "Открыли образ в новой вкладке — удерживайте палец на картинке и выберите «Сохранить в Фото» (на компьютере: правый клик → «Сохранить как»)."
+        );
+        setTimeout(() => setSaveHint(null), 15_000);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Кнопка «Скачать файлом»: именно файл в «Загрузки»/«Фото», без меню «Поделиться»
+  const handleDownload = async () => {
+    if (!result || saving) return;
+    setSaving(true);
+    setSaveHint(null);
+    try {
+      const how = await saveImageFile(result, `glamai-look-${Date.now()}`, "download-only");
+      if (how === "tab" || how === "opened-raw") {
+        setSaveHint(
+          "Прямое скачивание здесь недоступно — открыли образ в новой вкладке: удерживайте палец на картинке → «Сохранить в Фото» (или воспользуйтесь «Поделиться»)."
         );
         setTimeout(() => setSaveHint(null), 15_000);
       }
@@ -185,13 +206,24 @@ export function ResultPanel({
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             className="glam-btn h-10 font-semibold"
-            onClick={() => void handleSave()}
+            onClick={() => void handleShare()}
             disabled={saving}
-            aria-label="Скачать образ"
+            aria-label="Поделиться образом"
+            data-testid="share-look"
+          >
+            <Share2 className="h-4 w-4" />
+            {saving ? "Открываем…" : "Поделиться образом"}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+            onClick={() => void handleDownload()}
+            disabled={saving}
+            aria-label="Скачать образ файлом"
             data-testid="download-look"
           >
             <Download className="h-4 w-4" />
-            {saving ? "Сохраняем…" : "Скачать образ"}
+            Скачать файлом
           </Button>
           <Button
             variant="ghost"
