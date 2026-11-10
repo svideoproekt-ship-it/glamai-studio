@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Loader2, LogOut, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, LogOut, MessageCircle, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +16,7 @@ import {
   type ProductId,
   type ProductState,
 } from "@/lib/makeup";
-import AuthGate, { useAuth } from "@/components/glam/AuthGate";
+import AuthGate, { openTelegramChat, useAuth } from "@/components/glam/AuthGate";
 
 type Mode = "prompt" | "reference";
 
@@ -87,7 +87,7 @@ export default function Home() {
 }
 
 function Studio() {
-  const { profile, refresh, openPaywall } = useAuth();
+  const { profile, refresh, openPaywall, ownerTg, maxLink } = useAuth();
   const [mode, setMode] = useState<Mode>("prompt");
   const [modelPhoto, setModelPhoto] = useState<PhotoValue | null>(null);
   const [refPhoto, setRefPhoto] = useState<PhotoValue | null>(null);
@@ -565,7 +565,46 @@ function Studio() {
 
       {/* Подвал */}
       <footer className="mt-auto border-t border-[#F8F1E1]/20 py-4">
-        <p className="text-center text-sm text-muted-foreground">
+        {/* Связаться и передать фото: оба мессенджера владельца — Telegram и MAX.
+            Виден на ПК и телефоне всегда (не только в окне оплаты) — MAX как раз
+            для передачи фото модели. */}
+        {(ownerTg || maxLink) && (
+          <div
+            className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-2 px-4"
+            data-testid="contacts-strip"
+          >
+            <p className="text-sm text-muted-foreground">
+              Передать фото или задать вопрос:
+            </p>
+            {ownerTg && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                onClick={() =>
+                  openTelegramChat(`https://t.me/${ownerTg.replace(/^@/, "")}`)
+                }
+                data-testid="contact-telegram"
+              >
+                <Send className="h-3.5 w-3.5" aria-hidden />
+                Telegram
+              </Button>
+            )}
+            {maxLink && (
+              <a href={maxLink} target="_blank" rel="noreferrer" data-testid="contact-max">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                  MAX
+                </Button>
+              </a>
+            )}
+          </div>
+        )}
+        <p className="mt-3 text-center text-sm text-muted-foreground">
           GlamAI Studio · Виртуальная примерка макияжа · Фото обрабатываются в момент запроса
           и не сохраняются на сервере
         </p>

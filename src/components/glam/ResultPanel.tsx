@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, RotateCcw, Share2, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Info, RotateCcw, Send, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { saveImageFile } from "@/lib/download";
 import {
@@ -44,6 +44,7 @@ export function ResultPanel({
 }: ResultPanelProps) {
   const [tick, setTick] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
   const [saveHint, setSaveHint] = useState<string | null>(null);
 
   useEffect(() => {
@@ -117,8 +118,9 @@ export function ResultPanel({
   }
 
   // Кнопка «Поделиться»: в Telegram на телефоне открывает системное меню
-  // («Сохранить в Фото» / переслать клиенту). Простой <a download> с
-  // data-ссылкой в WebView Telegram молча не срабатывает — см. download.ts
+  // («Сохранить в Фото» / переслать клиенту). Если меню недоступно —
+  // тихий фолбэк на скачивание, но в WebView Telegram тот может молча
+  // не сработать — поэтому честная подсказка с «Отправить в Telegram»
   const handleShare = async () => {
     if (!result || saving) return;
     setSaving(true);
@@ -126,8 +128,10 @@ export function ResultPanel({
     try {
       const how = await saveImageFile(result, `glamai-look-${Date.now()}`);
       if (how === "download") {
-        setSaveHint("Файл скачан — ищите glamai-look-… в папке «Загрузки».");
-        setTimeout(() => setSaveHint(null), 8_000);
+        setSaveHint(
+          "Файл ушёл в «Загрузки». Если не нашли его там (WebView Telegram иногда не сохраняет файлы) — нажмите «Отправить в Telegram»: образ придёт в чат с ботом, оттуда «Сохранить в галерею»."
+        );
+        setTimeout(() => setSaveHint(null), 15_000);
       } else if (how === "tab" || how === "opened-raw") {
         setSaveHint(
           "Открыли образ в новой вкладке — удерживайте палец на картинке и выберите «Сохранить в Фото» (на компьютере: правый клик → «Сохранить как»)."
@@ -139,6 +143,35 @@ export function ResultPanel({
     }
   };
 
+  // Кнопка «Отправить в Telegram»: бот пришлёт фото в чат с мастером —
+  // работает на любом устройстве, ведь WebView Telegram не умеет скачивать
+  const handleSendToTg = async () => {
+    if (!result || sending) return;
+    setSending(true);
+    setSaveHint(null);
+    try {
+      const res = await fetch("/api/send-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: result }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!data.ok) {
+        setSaveHint(data.error ?? "Не удалось отправить, попробуйте ещё раз.");
+      } else {
+        setSaveHint(
+          "Отправили ✅ Откройте чат с ботом в Telegram: там лежит образ — долгое нажатие → «Сохранить в галерею» или сразу «Переслать» клиенту."
+        );
+      }
+      setTimeout(() => setSaveHint(null), 18_000);
+    } catch {
+      setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
+      setTimeout(() => setSaveHint(null), 12_000);
+    } finally {
+      setSending(false);
+    }
+  };
+
   // Кнопка «Скачать файлом»: именно файл в «Загрузки»/«Фото», без меню «Поделиться»
   const handleDownload = async () => {
     if (!result || saving) return;
@@ -146,9 +179,12 @@ export function ResultPanel({
     setSaveHint(null);
     try {
       const how = await saveImageFile(result, `glamai-look-${Date.now()}`, "download-only");
-      if (how === "tab" || how === "opened-raw") {
+      if (how === "download") {
+        setSaveHint("Файл ушёл в «Загрузки» (на компьютере — в папку загрузок браузера).");
+        setTimeout(() => setSaveHint(null), 8_000);
+      } else if (how === "tab" || how === "opened-raw") {
         setSaveHint(
-          "Прямое скачивание здесь недоступно — открыли образ в новой вкладке: удерживайте палец на картинке → «Сохранить в Фото» (или воспользуйтесь «Поделиться»)."
+          "Прямое скачивание здесь недоступно — открыли образ в новой вкладке: удерживайте палец на картинке → «Сохранить в Фото» (или нажмите «Отправить в Telegram»)."
         );
         setTimeout(() => setSaveHint(null), 15_000);
       }
@@ -206,19 +242,30 @@ export function ResultPanel({
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             className="glam-btn h-10 font-semibold"
+            onClick={() => void handleSendToTg()}
+            disabled={saving || sending}
+            aria-label="Отправить образ в Telegram"
+            data-testid="send-look-tg"
+          >
+            <Send className="h-4 w-4" />
+            {sending ? "Отправляем…" : "Отправить в Telegram"}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
             onClick={() => void handleShare()}
-            disabled={saving}
+            disabled={saving || sending}
             aria-label="Поделиться образом"
             data-testid="share-look"
           >
             <Share2 className="h-4 w-4" />
-            {saving ? "Открываем…" : "Поделиться образом"}
+            Поделиться
           </Button>
           <Button
             variant="outline"
             className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
             onClick={() => void handleDownload()}
-            disabled={saving}
+            disabled={saving || sending}
             aria-label="Скачать образ файлом"
             data-testid="download-look"
           >

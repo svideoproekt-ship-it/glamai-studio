@@ -22,7 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AlertTriangle, Loader2, LogIn, MessageCircle, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, LogIn, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -77,6 +77,8 @@ interface TgWebApp {
   initData?: string;
   ready?: () => void;
   expand?: () => void;
+  /** Открыть t.me-ссылку силами самого Telegram (без перехвата Unigram и пр.) */
+  openTelegramLink?: (url: string) => void;
   /** «android»/«ios» — телефон, «tdesktop»/«macos»/«web» — компьютер */
   platform?: string;
   /** Покрасить шапку и фон Telegram в цвет студии: без этого сверху и снизу
@@ -96,6 +98,38 @@ function isTelegramClient(): boolean {
   // Внутренний браузер Telegram (iOS/Android/Desktop) обычно помечает UA,
   // но надеемся не на него, а на initData — это только запасной признак.
   return /Telegram/i.test(window.navigator.userAgent);
+}
+
+/** Открыть чат t.me так, чтобы ссылку не перехватили сторонние клиенты
+ *  (Unigram и пр.): внутри Telegram — штатный openTelegramLink, чат
+ *  откроется в самом приложении; на телефоне в обычном браузере — t.me
+ *  (его подхватит приложение Telegram); на ПК в обычном браузере —
+ *  Telegram Web. Используется и paywall-ом, и блоком «Связаться». */
+export function openTelegramChat(tmeUrl: string): void {
+  if (typeof window === "undefined") return;
+  const app = getTelegramWebApp();
+  if (app?.openTelegramLink) {
+    try {
+      app.openTelegramLink(tmeUrl);
+      return;
+    } catch {
+      /* упадём в обычную навигацию ниже */
+    }
+  }
+  const platform = app?.platform ?? "";
+  const mobile =
+    /android|ios/i.test(platform) ||
+    window.matchMedia("(max-width: 767px)").matches;
+  if (mobile) {
+    window.open(tmeUrl, "_blank", "noopener");
+    return;
+  }
+  const owner = /t\.me\/([^/?#]+)/.exec(tmeUrl)?.[1];
+  window.open(
+    owner ? `https://web.telegram.org/k/#@${owner}` : tmeUrl,
+    "_blank",
+    "noopener"
+  );
 }
 
 /** Красим панели Telegram под цвет студии и раскрываем на весь экран.
@@ -123,12 +157,18 @@ interface AuthContextValue {
   refresh: () => Promise<void>;
   /** Открыть модалку оплаты (вызывается при 402 от /api/tryon) */
   openPaywall: (payload?: PaywallPayload) => void;
+  /** @username владельца (без @) — блок «Связаться» в подвале студии */
+  ownerTg: string;
+  /** Ссылка на профиль владельца в MAX — туда же, если задана на Vercel */
+  maxLink: string;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   profile: null,
   refresh: async () => {},
   openPaywall: () => {},
+  ownerTg: "",
+  maxLink: "",
 });
 
 /** Хук для UI внутри студии: профиль, обновление остатка, paywall. */
@@ -241,7 +281,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [miniAppLogin]);
 
   const contextValue = useMemo<AuthContextValue>(
-    () => ({ profile: me?.profile ?? null, refresh, openPaywall }),
+    () => ({
+      profile: me?.profile ?? null,
+      refresh,
+      openPaywall,
+      ownerTg: me?.ownerTg ?? "",
+      maxLink: me?.pay?.maxLink ?? "",
+    }),
     [me, refresh, openPaywall]
   );
 
@@ -581,22 +627,13 @@ function PaywallDialog({
     );
   };
 
-  const inTelegram = (): boolean => Boolean(getTelegramWebApp()?.platform);
 
-  // Ссылка в чат владельца. Внутри Telegram (любое устройство) — обычная
-  // t.me: чат откроется сам, ничего перехватывать нечему. А вот в ОБЫЧНОМ
-  // браузере на ПК ссылка t.me подхватывается сторонним клиентом,
-  // зарегистрировавшим протокол (Unigram и т.п.) — поэтому там ведём в
-  // Telegram Web, а текст заявки копируем в буфер для вставки в чат.
-  const tgLink = (planKey: "start" | "salon"): string => {
-    if (!ownerTg) return "";
-    const owner = ownerTg.replace(/^@/, "");
-    if (inTelegram() || isMobile) {
-      return `https://t.me/${owner}?text=${encodeURIComponent(planMessage(planKey))}`;
-    }
-    return `https://web.telegram.org/k/#@${owner}`;
-  };
-
+  // Открыть чат владельца с готовым текстом заявки — БЕЗ перехвата ссылок.
+  // Внутри Telegram используем штатный WebApp.openTelegramLink: Telegram сам
+  // откроет чат (на ПК тоже — больше не открывается Unigram и прочие клиенты,
+  // перехватившие протокол t.me). В обычном браузере: телефон — t.me
+  // (на телефоне обработчик — сам Telegram), ПК — Telegram Web с копированием
+  // текста заявки в буфер.
   const handlePlanClick = (planKey: "start" | "salon"): void => {
     // Заявка на подписку летит в /admin владельца: ID подставится сам.
     // Fire-and-forget c keepalive — не мешаем открытию чата.
@@ -606,13 +643,30 @@ function PaywallDialog({
       body: JSON.stringify({ plan: planKey }),
       keepalive: true,
     }).catch(() => {});
-    // На ПК в обычном браузере: копируем текст — вставит в чат Telegram Web
-    if (!inTelegram() && !isMobile && ownerTg) {
-      void navigator.clipboard?.writeText(planMessage(planKey)).catch(() => {});
-      setPcNote(
-        "Чат откроется в Telegram Web — текст заявки уже скопирован, вставьте его в чат (Ctrl+V)."
-      );
+
+    if (!ownerTg) return;
+    const owner = ownerTg.replace(/^@/, "");
+    const tme = `https://t.me/${owner}?text=${encodeURIComponent(planMessage(planKey))}`;
+
+    const app = getTelegramWebApp();
+    if (app?.openTelegramLink) {
+      try {
+        app.openTelegramLink(tme);
+        return;
+      } catch {
+        /* упадём в обычную навигацию ниже */
+      }
     }
+    if (isMobile) {
+      window.open(tme, "_blank", "noopener");
+      return;
+    }
+    // ПК в обычном браузере: t.me перехватывается сторонними клиентами (Unigram)
+    void navigator.clipboard?.writeText(planMessage(planKey)).catch(() => {});
+    setPcNote(
+      "Открываем Telegram Web — текст заявки уже скопирован, вставьте его в чат (Ctrl+V)."
+    );
+    window.open(`https://web.telegram.org/k/#@${owner}`, "_blank", "noopener");
   };
 
   return (
@@ -641,19 +695,15 @@ function PaywallDialog({
                   <li key={perk}>· {perk}</li>
                 ))}
               </ul>
-              {tgLink(p.key) ? (
-                <a
-                  href={tgLink(p.key)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 block"
+              {ownerTg ? (
+                <Button
+                  className="glam-btn h-10 w-full text-sm font-bold"
                   onClick={() => handlePlanClick(p.key)}
+                  data-testid={`pay-${p.key}`}
                 >
-                  <Button className="glam-btn h-10 w-full text-sm font-bold" data-testid={`pay-${p.key}`}>
-                    <Sparkles className="h-4 w-4" aria-hidden />
-                    Выбрать {p.title} — {fmtRub(PLAN_PRICES[p.key])} ₽
-                  </Button>
-                </a>
+                  <Sparkles className="h-4 w-4" aria-hidden />
+                  Выбрать {p.title} — {fmtRub(PLAN_PRICES[p.key])} ₽
+                </Button>
               ) : null}
             </div>
           ))}
@@ -665,26 +715,6 @@ function PaywallDialog({
             {pcNote}
           </p>
         )}
-
-        {/* MAX — российский мессенджер: если владелец задал ссылку,
-            клиент без Telegram сможет написать туда */}
-        {pay?.maxLink && (
-          <div className="mt-1">
-            <a href={pay.maxLink} target="_blank" rel="noreferrer" data-testid="pay-max">
-              <Button
-                variant="outline"
-                className="h-10 w-full border-[#F8F1E1]/30 text-sm text-[#F8F1E1] hover:bg-white/10"
-              >
-                <MessageCircle className="h-4 w-4" aria-hidden />
-                Написать в MAX
-              </Button>
-            </a>
-            <p className="mt-1 text-center text-xs text-[#F8F1E1]/60">
-              Нет Telegram? Владелец отвечает и в российском мессенджере MAX.
-            </p>
-          </div>
-        )}
-
         {/* Реквизиты: клиент видит КУДА и СКОЛЬКО переводить */}
         <div className="mt-3 rounded-2xl border border-[#F8F1E1]/20 bg-[#06301B]/80 p-4" data-testid="pay-requisites">
           <p className="text-sm font-bold text-[#F8F1E1]">Как оплатить</p>
