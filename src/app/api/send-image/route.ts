@@ -1,8 +1,12 @@
 // Отправка готового образа мастеру в чат с ботом — САМЫЙ НАДЁЖНЫЙ способ
 // «скачать» на телефоне: WebView Telegram не умеет скачивать файлы (клики
 // молча теряются), а вот сообщение от бота приходит всегда. Мастер открывает
-// чат с ботом → долгое нажатие на фото → «Сохранить в галерею» или сразу
-// «Переслать» клиенту.
+// чат с ботом → штатное меню Telegram кладёт фото в галерею (Android —
+// «Сохранить в галерею», iPhone — «Поделиться» → «Сохранить изображение»)
+// или сразу «Переслать» клиенту.
+//
+// В ответе возвращаем и username бота (getMe, кэшируется) — студия
+// открывает чат с ботом сама, мастеру не нужно его искать.
 //
 // Безопасность: chat_id берём ИЗ ПОДПИСАННОЙ СЕССИИ, образ — картинка в
 // пределах лимита Bot API (10 МБ на фото). Токен бота наружу не отдаётся.
@@ -14,6 +18,26 @@ export const runtime = "nodejs";
 
 const MAX_DATAURL_CHARS = 4_000_000; // ~3 МБ изображения в base64
 const ALLOWED = /^data:image\/(png|jpe?g|webp);base64,/;
+
+// username бота не меняется — одного getMe хватает на весь холодный старт
+let botUsernameCache = "";
+
+async function getBotUsername(botToken: string): Promise<string> {
+  if (botUsernameCache) return botUsernameCache;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      result?: { username?: string };
+    };
+    if (data.ok && data.result?.username) {
+      botUsernameCache = String(data.result.username);
+    }
+  } catch {
+    // не критично: студия просто не откроет чат сама, покажет подсказку
+  }
+  return botUsernameCache;
+}
 
 export async function POST(req: NextRequest) {
   const tid = verifySession(req.cookies.get(SESSION_COOKIE)?.value, process.env.AUTH_SECRET ?? "");
@@ -78,7 +102,7 @@ export async function POST(req: NextRequest) {
       console.error("[send-image] Bot API:", data.description ?? res.status);
       return NextResponse.json({ ok: false, error: "Telegram не принял фото, попробуйте ещё раз." }, { status: 502 });
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, botUsername: await getBotUsername(botToken) });
   } catch (err) {
     console.error("[send-image] ошибка:", err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: false, error: "Не удалось отправить, попробуйте ещё раз." }, { status: 500 });

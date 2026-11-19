@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Download, Info, RotateCcw, Share2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { isTelegramWebView, saveImageFile, shareImage } from "@/lib/download";
+import {
+  isIosDevice,
+  isTelegramWebView,
+  saveImageFile,
+  shareImage,
+} from "@/lib/download";
+import { openTelegramChat } from "./AuthGate";
 import { TransferSheet } from "./TransferSheet";
 import {
   Collapsible,
@@ -142,8 +148,8 @@ export function ResultPanel({
   };
 
   // Бот пришлёт фото в чат с мастером — работает на любом устройстве, ведь
-  // WebView Telegram не умеет скачивать. Дальше мастер пересылает фото клиенту.
-  // Кнопка живёт в листе передачи; лист сам закрываем после успешной отправки.
+  // WebView Telegram не умеет скачивать. После отправки сами открываем чат:
+  // оттуда «Переслать» клиенту или сохранить фото в галерею штатным меню.
   const handleSendToTg = async () => {
     if (!result || sending) return;
     setSending(true);
@@ -154,14 +160,21 @@ export function ResultPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: result }),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        botUsername?: string;
+      };
       if (!data.ok) {
         setSaveHint(data.error ?? "Не удалось отправить, попробуйте ещё раз.");
       } else {
         setSheetOpen(false);
         setSaveHint(
-          "Готово — фото в чате с ботом. Откройте Telegram → чат с ботом → «Переслать» → выберите клиента."
+          "Фото в чате с ботом — открыли его для вас: «Переслать» клиенту или сохранить в галерею через меню фото."
         );
+        if (data.botUsername) {
+          openTelegramChat(`https://t.me/${data.botUsername}`);
+        }
       }
       setTimeout(() => setSaveHint(null), 15_000);
     } catch {
@@ -172,25 +185,91 @@ export function ResultPanel({
     }
   };
 
-  // «Сохранить в галерею»: именно файл в «Загрузки»/«Фото», без меню «Поделиться».
-  // В WebView Telegram скачивание молча проглатывается — там открываем фото
-  // крупно внутри студии: долгое нажатие даёт родное меню телефона.
-  // fromSheet: лист передачи закрываем, иначе он перекроет крупный просмотр
+  // Запрос к /api/send-image: бот кладёт фото в чат мастера и сообщает свой
+  // username. Общий для «Сохранить в галерею» и листа передачи.
+  const sendViaBot = async (): Promise<{
+    ok: boolean;
+    botUsername?: string;
+    error?: string;
+  }> => {
+    const res = await fetch("/api/send-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: result }),
+    });
+    return (await res.json().catch(() => ({}))) as {
+      ok: boolean;
+      botUsername?: string;
+      error?: string;
+    };
+  };
+
+  const openBotChat = (botUsername?: string): void => {
+    if (botUsername) openTelegramChat(`https://t.me/${botUsername}`);
+  };
+
+  const botSaveHint = (): string =>
+    isIosDevice()
+      ? "Фото уже в чате с ботом — открыли его для вас. Нажмите на фото → «Поделиться» → «Сохранить изображение» — фото окажется в галерее."
+      : "Фото уже в чате с ботом — открыли его для вас. Откройте фото на весь экран → меню (три точки) → «Сохранить в галерею».";
+
+  // «Сохранить в галерею»: гарантированный путь к фото в галерее телефона.
+  // В WebView Telegram ни скачивание, ни долгое нажатие не работают — зато
+  // бот кладёт фото в чат, а Telegram нативно сохраняет фото из чата в
+  // галерею на любом телефоне. Студия сама открывает чат — остаётся
+  // нажать на фото и выбрать «Сохранить в галерею».
   const handleSaveGallery = async (fromSheet = false) => {
-    if (!result || saving) return;
+    if (!result || saving || sending) return;
+    if (fromSheet) setSheetOpen(false);
+
     if (isTelegramWebView()) {
-      if (fromSheet) setSheetOpen(false);
-      setLightbox(true);
+      setSending(true);
+      setSaveHint(null);
+      try {
+        const data = await sendViaBot();
+        if (!data.ok) {
+          setSaveHint(
+            data.error ??
+              "Не удалось отправить, попробуйте ещё раз."
+          );
+          // запасной путь, если бот не настроен: крупный просмотр
+          setLightbox(true);
+          return;
+        }
+        setSaveHint(botSaveHint());
+        openBotChat(data.botUsername);
+      } catch {
+        setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
+        setLightbox(true);
+      } finally {
+        setSending(false);
+      }
       return;
     }
-    if (fromSheet) setSheetOpen(false);
+
+    // Обычный браузер: iPhone — системное «Поделиться» (в нём есть
+    // «Сохранить изображение» — самый короткий путь в галерею «Фото»);
+    // Android и ПК — прямое скачивание файла.
     setSaving(true);
     setSaveHint(null);
     try {
+      if (isIosDevice()) {
+        const how = await shareImage(result, "Образ GlamAI Studio 💄");
+        if (how === "share") {
+          setSaveHint(
+            "В меню выберите «Сохранить изображение» — фото попадёт в галерею."
+          );
+          setTimeout(() => setSaveHint(null), 12_000);
+          return;
+        }
+        // share недоступен — упадём в скачивание ниже
+      }
       const how = await saveImageFile(result, `glamai-look-${Date.now()}`, "download-only");
       if (how === "download") {
-        setSaveHint("Фото сохранено — вложите его в мессенджер или письмо скрепкой.");
-        setTimeout(() => setSaveHint(null), 10_000);
+        setSaveHint(
+          "Фото в «Загрузках» — оно видно в галерее, и его можно вложить в сообщение мессенджера."
+        );
+        setTimeout(() => setSaveHint(null), 12_000);
       } else if (how === "tab" || how === "opened-raw") {
         setSaveHint(
           "Прямое скачивание здесь недоступно — открыли фото крупно: удерживайте палец → «Сохранить в галерею»."
@@ -325,6 +404,7 @@ export function ResultPanel({
         onClose={() => setSheetOpen(false)}
         sending={sending}
         maxLink={maxLink}
+        telegramMode={isTelegramWebView()}
         onBotSend={() => void handleSendToTg()}
         onSaveDevice={() => void handleSaveGallery(true)}
       />

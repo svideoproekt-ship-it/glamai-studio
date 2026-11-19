@@ -17,6 +17,9 @@ interface TransferSheetProps {
   onClose: () => void;
   sending: boolean;
   maxLink: string;
+  /** Внутри Telegram: единственный надёжный путь — бот → чат.
+   *  В обычном браузере доступно прямое сохранение на устройство. */
+  telegramMode: boolean;
   onBotSend: () => void;
   onSaveDevice: () => void;
 }
@@ -51,6 +54,7 @@ export function TransferSheet({
   onClose,
   sending,
   maxLink,
+  telegramMode,
   onBotSend,
   onSaveDevice,
 }: TransferSheetProps) {
@@ -94,52 +98,66 @@ export function TransferSheet({
           </Button>
         </div>
 
-        {/* 1 — Telegram: бот кладёт фото в чат мастера, дальше «Переслать» */}
+        {/* Внутри Telegram: бот кладёт фото в чат — оттуда «Переслать»
+            клиенту или сохранить в галерею штатным меню Telegram.
+            В обычном браузере: прямое сохранение файла на устройство. */}
         <div className="mt-4 flex items-start gap-2.5">
           <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#8CE99A]/25 text-xs font-bold text-[#DFF7E6]">
             1
           </span>
           <div className="flex-1">
-            <Button
-              className="glam-btn h-11 w-full font-semibold"
-              onClick={onBotSend}
-              disabled={sending}
-              data-testid="sheet-bot-send"
-            >
-              <Send className="h-4 w-4" />
-              {sending ? "Отправляем…" : "Отправить ботом в Telegram"}
-            </Button>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              Фото придёт в ваш чат с ботом: откройте его → «Переслать» →
-              выберите клиента. Работает на любом устройстве.
-            </p>
+            {telegramMode ? (
+              <>
+                <Button
+                  className="glam-btn h-11 w-full font-semibold"
+                  onClick={onBotSend}
+                  disabled={sending}
+                  data-testid="sheet-bot-send"
+                >
+                  <Send className="h-4 w-4" />
+                  {sending ? "Отправляем…" : "Отправить ботом в Telegram"}
+                </Button>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  Фото придёт в чат с ботом, и мы откроем его сами. Оттуда:
+                  «Переслать» клиенту — или сохраните фото в галерею через
+                  меню фото (Android: три точки → «Сохранить в галерею»;
+                  iPhone: «Поделиться» → «Сохранить изображение»), чтобы
+                  вложить его в другие мессенджеры.
+                </p>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  className="h-11 w-full border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                  onClick={onSaveDevice}
+                  data-testid="sheet-save-device"
+                >
+                  <Paperclip className="h-4 w-4" />
+                  Сохранить фото на устройство
+                </Button>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  Затем в мессенджере или почте нажмите «скрепка» → «Галерея»
+                  и выберите сохранённое фото. Ссылка не может вложить файл
+                  сама — так устроены все мессенджеры.
+                </p>
+              </>
+            )}
           </div>
         </div>
 
-        {/* 2 — сохранить на устройство и вложить скрепкой */}
+        {/* Открыть мессенджер: фото вкладывается скрепкой уже в чате */}
         <div className="mt-4 flex items-start gap-2.5">
           <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#9B6EF3]/25 text-xs font-bold text-[#D9CCFF]">
             2
           </span>
           <div className="flex-1">
-            <Button
-              variant="outline"
-              className="h-11 w-full border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
-              onClick={onSaveDevice}
-              data-testid="sheet-save-device"
-            >
-              <Paperclip className="h-4 w-4" />
-              Сохранить фото на устройство
-            </Button>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              Затем в мессенджере или почте нажмите «скрепка» → «Галерея» и
-              выберите сохранённое фото. Ссылка не может вложить файл сама —
-              так устроены все мессенджеры.
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {telegramMode
+                ? "После сохранения в галерею откройте мессенджер и вложите фото скрепкой:"
+                : "Открыть чат сразу (фото вкладывается скрепкой в самом чате):"}
             </p>
-            <p className="mt-2 text-xs font-medium text-[#F8F1E1]/70">
-              Открыть чат:
-            </p>
-            <div className="mt-1.5 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               <Button
                 size="sm"
                 variant="outline"

@@ -49,7 +49,9 @@ async function srcToBlob(src: string): Promise<Blob | null> {
   }
 }
 
-const isIos = (): boolean =>
+/** iPhone/iPad? Нужен для подсказок: на iOS фото в галерею попадает через
+ *  «Поделиться» → «Сохранить изображение», на Android — через скачивание. */
+export const isIosDevice = (): boolean =>
   typeof navigator !== "undefined" &&
   (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
@@ -157,7 +159,7 @@ export async function saveImageFile(
 
     // 3) Подстраховка для iOS без «Поделиться»: WKWebView часто игнорирует
     //    download — открываем картинку в новой вкладке, оттуда «Сохранить»
-    if (isIos()) {
+    if (isIosDevice()) {
       window.open(url, "_blank", "noopener");
       return "tab";
     }
