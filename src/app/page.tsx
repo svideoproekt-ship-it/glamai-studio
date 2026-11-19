@@ -597,6 +597,7 @@ function Studio() {
               usedPrompt={usedPrompt}
               usedDescription={usedDescription}
               portraitMode={portraitMode}
+              maxLink={maxLink}
               onReset={resetResult}
             />
           </div>
@@ -605,16 +606,17 @@ function Studio() {
 
       {/* Подвал */}
       <footer className="mt-auto border-t border-[#F8F1E1]/20 py-4">
-        {/* Связаться и передать фото: оба мессенджера владельца — Telegram и MAX.
-            Виден на ПК и телефоне всегда (не только в окне оплаты) — MAX как раз
-            для передачи фото модели. */}
+        {/* Подвал — только связь с владельцем («написать сообщение»). Передача
+            фото клиенту живёт в панели результата (кнопка «Передать фото
+            клиенту») — ссылка в подвале не может вложить файл в чат, поэтому
+            дубль здесь только вводил в заблуждение. */}
         {(ownerTg || maxLink) && (
           <div
             className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-2 px-4"
             data-testid="contacts-strip"
           >
             <p className="text-sm text-muted-foreground">
-              Передать фото или задать вопрос:
+              Задать вопрос — поможем с оплатой и подпиской:
             </p>
             {ownerTg && (
               <Button

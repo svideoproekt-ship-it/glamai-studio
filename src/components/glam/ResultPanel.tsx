@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, RotateCcw, Send, Share2, Sparkles, X } from "lucide-react";
+import { ChevronDown, Download, Info, RotateCcw, Share2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isTelegramWebView, saveImageFile, shareImage } from "@/lib/download";
+import { TransferSheet } from "./TransferSheet";
 import {
   Collapsible,
   CollapsibleContent,
@@ -30,6 +31,8 @@ interface ResultPanelProps {
   usedDescription: string | null;
   /** Публичный API Z.AI: результат — портрет по описанию внешности, не правка фото */
   portraitMode?: boolean;
+  /** Ссылка на чат владельца в MAX (необязательно) — для листа передачи фото */
+  maxLink?: string;
   onReset: () => void;
 }
 
@@ -40,6 +43,7 @@ export function ResultPanel({
   usedPrompt,
   usedDescription,
   portraitMode,
+  maxLink = "",
   onReset,
 }: ResultPanelProps) {
   const [tick, setTick] = useState(0);
@@ -47,6 +51,7 @@ export function ResultPanel({
   const [sending, setSending] = useState(false);
   const [saveHint, setSaveHint] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     if (!loading) return;
@@ -118,26 +123,27 @@ export function ResultPanel({
     );
   }
 
-  // Кнопка «Поделиться»: сначала настоящее системное меню с файлом — в нём
-  // видны Telegram, MAX и «Сохранить в галерею», мастер выбирает сам.
-  // Если системного меню здесь нет (WebView Telegram его прячет) — открываем
-  // фото крупно ВНУТРИ студии: долгое нажатие на картинку даёт родное меню
-  // «Сохранить/Поделиться». Реакция есть всегда — молчаливых провалов больше нет
-  const handleShare = async () => {
+  // «Передать фото клиенту»: где есть системное меню — сразу открываем его
+  // с файлом-картинкой: в нём Telegram, WhatsApp, MAX и почта, и фото вложено
+  // само. Где меню нет (WebView Telegram его прячет) — открываем лист
+  // «Передача фото» с двумя проверенными путями: бот → переслать клиенту,
+  // сохранить на устройство → вложить скрепкой. Реакция есть всегда.
+  const handleTransfer = async () => {
     if (!result || saving) return;
     setSaving(true);
     setSaveHint(null);
     try {
-      const how = await shareImage(result);
-      if (how === "share") return; // меню открылось или мастер сам его закрыл
-      setLightbox(true);
+      const how = await shareImage(result, "Образ GlamAI Studio 💄");
+      if (how === "share") return; // системное меню открылось (или мастер закрыл его сам)
+      setSheetOpen(true);
     } finally {
       setSaving(false);
     }
   };
 
-  // Кнопка «Отправить в Telegram»: бот пришлёт фото в чат с мастером —
-  // работает на любом устройстве, ведь WebView Telegram не умеет скачивать
+  // Бот пришлёт фото в чат с мастером — работает на любом устройстве, ведь
+  // WebView Telegram не умеет скачивать. Дальше мастер пересылает фото клиенту.
+  // Кнопка живёт в листе передачи; лист сам закрываем после успешной отправки.
   const handleSendToTg = async () => {
     if (!result || sending) return;
     setSending(true);
@@ -152,11 +158,12 @@ export function ResultPanel({
       if (!data.ok) {
         setSaveHint(data.error ?? "Не удалось отправить, попробуйте ещё раз.");
       } else {
+        setSheetOpen(false);
         setSaveHint(
-          "Отправили ✅ Откройте чат с ботом в Telegram: там лежит образ — долгое нажатие → «Сохранить в галерею» или сразу «Переслать» клиенту."
+          "Готово — фото в чате с ботом. Откройте Telegram → чат с ботом → «Переслать» → выберите клиента."
         );
       }
-      setTimeout(() => setSaveHint(null), 18_000);
+      setTimeout(() => setSaveHint(null), 15_000);
     } catch {
       setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
       setTimeout(() => setSaveHint(null), 12_000);
@@ -165,25 +172,28 @@ export function ResultPanel({
     }
   };
 
-  // Кнопка «Скачать файлом»: именно файл в «Загрузки»/«Фото», без меню «Поделиться».
-  // В WebView Telegram скачивание молча проглатывается — там сразу фото крупно
-  // внутри студии (долгое нажатие → «Сохранить в галерею»), никакой тишины
-  const handleDownload = async () => {
+  // «Сохранить в галерею»: именно файл в «Загрузки»/«Фото», без меню «Поделиться».
+  // В WebView Telegram скачивание молча проглатывается — там открываем фото
+  // крупно внутри студии: долгое нажатие даёт родное меню телефона.
+  // fromSheet: лист передачи закрываем, иначе он перекроет крупный просмотр
+  const handleSaveGallery = async (fromSheet = false) => {
     if (!result || saving) return;
     if (isTelegramWebView()) {
+      if (fromSheet) setSheetOpen(false);
       setLightbox(true);
       return;
     }
+    if (fromSheet) setSheetOpen(false);
     setSaving(true);
     setSaveHint(null);
     try {
       const how = await saveImageFile(result, `glamai-look-${Date.now()}`, "download-only");
       if (how === "download") {
-        setSaveHint("Файл ушёл в «Загрузки» (на компьютере — в папку загрузок браузера).");
-        setTimeout(() => setSaveHint(null), 8_000);
+        setSaveHint("Фото сохранено — вложите его в мессенджер или письмо скрепкой.");
+        setTimeout(() => setSaveHint(null), 10_000);
       } else if (how === "tab" || how === "opened-raw") {
         setSaveHint(
-          "Прямое скачивание здесь недоступно — открыли образ в новой вкладке: удерживайте палец на картинке → «Сохранить в Фото» (или нажмите «Отправить в Telegram»)."
+          "Прямое скачивание здесь недоступно — открыли фото крупно: удерживайте палец → «Сохранить в галерею»."
         );
         setTimeout(() => setSaveHint(null), 15_000);
       }
@@ -237,39 +247,32 @@ export function ResultPanel({
       )}
       <BeforeAfterSlider before={original ?? result} after={result} alt="Образ GlamAI" />
 
+      {/* Единый блок передачи: без дублей. Первичная кнопка — системное
+          «Поделиться» с файлом (там Telegram/WhatsApp/MAX/почта), иначе —
+          лист с ботом и сохранением. «Сохранить в галерею» — отдельный путь. */}
       <div className="flex flex-col items-center gap-2">
+        <p className="text-sm font-medium text-[#F8F1E1]/90">Передайте образ клиенту</p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             className="glam-btn h-10 font-semibold"
-            onClick={() => void handleSendToTg()}
+            onClick={() => void handleTransfer()}
             disabled={saving || sending}
-            aria-label="Отправить образ в Telegram"
-            data-testid="send-look-tg"
-          >
-            <Send className="h-4 w-4" />
-            {sending ? "Отправляем…" : "Отправить в Telegram"}
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
-            onClick={() => void handleShare()}
-            disabled={saving || sending}
-            aria-label="Поделиться образом"
-            data-testid="share-look"
+            aria-label="Передать фото клиенту"
+            data-testid="transfer-look"
           >
             <Share2 className="h-4 w-4" />
-            Поделиться
+            Передать фото клиенту
           </Button>
           <Button
             variant="outline"
             className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
-            onClick={() => void handleDownload()}
+            onClick={() => void handleSaveGallery(false)}
             disabled={saving || sending}
-            aria-label="Скачать образ файлом"
+            aria-label="Сохранить образ в галерею устройства"
             data-testid="download-look"
           >
             <Download className="h-4 w-4" />
-            Скачать файлом
+            Сохранить в галерею
           </Button>
           <Button
             variant="ghost"
@@ -315,9 +318,20 @@ export function ResultPanel({
         </Collapsible>
       )}
 
+      {/* Лист передачи фото — для сред без системного меню (WebView Telegram):
+          бот → переслать клиенту, сохранить → вложить скрепкой, чаты WhatsApp/MAX/почта */}
+      <TransferSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        sending={sending}
+        maxLink={maxLink}
+        onBotSend={() => void handleSendToTg()}
+        onSaveDevice={() => void handleSaveGallery(true)}
+      />
+
       {/* Фото крупно внутри студии: долгое нажатие на картинку даёт родное меню
-          телефона «Сохранить в галерею» / «Поделиться» (в нём есть и MAX) —
-          работает там, где WebView Telegram глотает скачивания и новые вкладки */}
+          телефона «Сохранить в галерею» / «Поделиться» (в нём Telegram, MAX и
+          WhatsApp) — работает там, где WebView Telegram глотает скачивания */}
       {lightbox && result && (
         <div
           className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
@@ -337,7 +351,7 @@ export function ResultPanel({
           />
           <p className="mt-4 max-w-md text-center text-sm leading-relaxed text-[#F8F1E1]/85">
             Удерживайте палец на фото → «Сохранить в галерею» или «Поделиться» —
-            в меню можно выбрать и MAX.
+            в меню телефона есть Telegram, MAX и WhatsApp.
           </p>
           <Button
             variant="outline"
