@@ -8,8 +8,10 @@ import {
   buildCorrectivePrompt,
   buildRequestedSummary,
   hasSelection,
+  normalizeSelection,
   REFERENCE_VISION_PROMPT,
   type ProductState,
+  type EyeAreaState,
 } from "@/lib/makeup";
 import { ensureZaiConfig } from "@/lib/zai-config";
 import { visionChatAny } from "@/lib/vision";
@@ -104,6 +106,13 @@ interface TryonBody {
   modelPhoto?: string;
   referencePhoto?: string;
   ratio?: number;
+  // Конструктор v36: три блока — «Стиль, образ» → «Лицо» → «Глаза»
+  style?: number;
+  face?: Record<string, ProductState>;
+  eyes?: Record<string, EyeAreaState>;
+  faceTools?: string[];
+  eyeTools?: string[];
+  // Старый конструктор (v35 и раньше) — для вкладок, открытых до обновления
   products?: Record<string, ProductState>;
   brushes?: string[];
   overall?: number;
@@ -281,7 +290,18 @@ export async function POST(req: NextRequest) {
 
     const userPrompt =
       typeof body.userPrompt === "string" ? body.userPrompt.slice(0, 800) : "";
-    const products = body.products ?? {};
+
+    // Конструктор: три блока («Стиль, образ» → «Лицо» → «Глаза») + инструменты.
+    // normalizeSelection дозаполняет дефолты и понимает старый формат
+    // (products/brushes/overall) — вкладки, открытые до обновления, не сломаются.
+    const selection = normalizeSelection({
+      style: body.style,
+      face: body.face,
+      eyes: body.eyes,
+      faceTools: body.faceTools,
+      eyeTools: body.eyeTools,
+      legacy: { products: body.products, brushes: body.brushes, overall: body.overall },
+    });
 
     // Выбор движка: Яндекс (YC_API_KEY + YC_FOLDER_ID) или Z.AI (по умолчанию).
     // Ключи создаются только для того движка, который реально активен:
@@ -297,22 +317,17 @@ export async function POST(req: NextRequest) {
       description = recipe;
       prompt = buildReferenceEditPrompt(recipe, userPrompt);
     } else {
-      if (!hasSelection(products, userPrompt)) {
+      if (!hasSelection(selection, userPrompt)) {
         return NextResponse.json(
           {
             success: false,
             error:
-              "Опишите образ словами или включите хотя бы один продукт в палитре — иначе ИИ не знает, что наносить.",
+              "Включите хотя бы один продукт в блоках «Лицо» или «Глаза» — или опишите образ словами, иначе ИИ не знает, что наносить.",
           },
           { status: 400 }
         );
       }
-      prompt = buildPrompt({
-        products,
-        brushes: Array.isArray(body.brushes) ? body.brushes.slice(0, 6) : [],
-        overall: typeof body.overall === "number" ? body.overall : 2,
-        userPrompt,
-      });
+      prompt = buildPrompt({ selection, userPrompt });
     }
 
     const size = pickSize(body.ratio ?? 0.75);
@@ -361,12 +376,7 @@ export async function POST(req: NextRequest) {
     const fastMode = body.fastMode === true;
     const requested =
       mode === "prompt"
-        ? buildRequestedSummary({
-            products,
-            brushes: [],
-            overall: typeof body.overall === "number" ? body.overall : 2,
-            userPrompt,
-          })
+        ? buildRequestedSummary({ selection, userPrompt })
         : `makeup transferred from the reference photo: ${description ?? ""}`;
 
     if (pipeline === "edit" && !fastMode && Date.now() - startedAt < AUDIT_LIMIT_MS) {

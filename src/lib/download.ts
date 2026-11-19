@@ -15,7 +15,7 @@
 export type SaveMethod = "share" | "download" | "tab" | "opened-raw";
 
 function dataUrlToBlob(dataUrl: string): Blob | null {
-  const m = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
+  const m = /^data:([^;,]+);base64,([\s\S]*)$/.exec(dataUrl);
   if (!m) return null;
   const mime = m[1] || "image/png";
   try {

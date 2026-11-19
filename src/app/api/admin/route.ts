@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
     user?: string;
     plan?: string;
     days?: number;
+    id?: number;
   };
   const adminSecret = process.env.ADMIN_SECRET?.trim() ?? "";
 

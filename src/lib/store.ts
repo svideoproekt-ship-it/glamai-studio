@@ -110,7 +110,12 @@ function toState(r: {
     trialUsed: Number(r.trialUsed ?? 0),
     monthlyUsed: Number(r.monthlyUsed ?? 0),
     monthlyResetYm: r.monthlyResetYm ?? null,
-    subscriptionUntil: r.subscriptionUntil ?? null,
+    subscriptionUntil:
+      r.subscriptionUntil instanceof Date
+        ? r.subscriptionUntil
+        : r.subscriptionUntil
+          ? new Date(r.subscriptionUntil)
+          : null,
   };
 }
 

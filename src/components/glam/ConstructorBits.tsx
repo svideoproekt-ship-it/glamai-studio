@@ -1,0 +1,273 @@
+"use client";
+
+// Общие детали конструктора v36: чипы выбора, палитра оттенков, плотность,
+// финиш и раскрывающаяся панель «Инструменты». Используется в блоках
+// «Лицо» (FacePanel) и «Глаза» (EyePanel).
+
+import {
+  Brush,
+  ChevronDown,
+  Droplets,
+  Paintbrush,
+  Pencil,
+  Plus,
+  Sparkles,
+  Wind,
+  Wrench,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+import {
+  BRUSHES,
+  INTENSITY_LABELS,
+  type FinishId,
+  type FinishOption,
+  type Swatch,
+} from "@/lib/makeup";
+
+const TOOL_ICONS: Record<string, LucideIcon> = {
+  fluffy: Brush,
+  flat: Paintbrush,
+  sponge: Droplets,
+  pencil: Pencil,
+  fan: Wind,
+  spoolie: Sparkles,
+};
+
+/** Цветная подсветка активных инструментов (без тревожного красного) */
+const TOOL_COLORS: Record<string, string> = {
+  fluffy: "#008B8B",
+  flat: "#FF7A59",
+  sponge: "#9B6EF3",
+  pencil: "#3E8EF7",
+  fan: "#8CE99A",
+  spoolie: "#F6B93B",
+};
+
+/** Кнопка-чип: вариант области, плотность, финиш */
+export function OptionChip({
+  active,
+  onClick,
+  children,
+  title,
+  testId,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  title?: string;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      data-testid={testId}
+      className={cn(
+        "h-12 rounded-full border px-4 text-xl font-semibold transition-all active:scale-95",
+        active
+          ? "border-transparent bg-gradient-to-r from-[#008B8B] to-[#16B8A6] text-white shadow-md shadow-[#032916]/40"
+          : "border-[#6F4E37]/35 bg-white/75 text-[#6F4E37] hover:border-[#6F4E37]/70 hover:bg-white"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Палитра оттенков + «свой оттенок» (пипетка) */
+export function SwatchPicker({
+  swatches,
+  color,
+  accent,
+  onChange,
+  label,
+}: {
+  swatches: Swatch[];
+  color: string;
+  accent: string;
+  onChange: (hex: string) => void;
+  label: string;
+}) {
+  const selected = swatches.find((s) => s.hex.toLowerCase() === color.toLowerCase());
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {swatches.map((s) => {
+        const isSel = s.hex.toLowerCase() === color.toLowerCase();
+        return (
+          <button
+            key={`${s.hex}${isSel ? "-sel" : ""}`}
+            type="button"
+            title={s.name}
+            aria-label={`${label}: ${s.name}`}
+            onClick={() => onChange(s.hex)}
+            className={cn(
+              "h-9 w-9 rounded-full border border-white/50 transition-transform duration-150 hover:scale-115 active:scale-90",
+              isSel && "swatch-pop scale-110"
+            )}
+            style={{
+              backgroundColor: s.hex,
+              ...(isSel ? { boxShadow: `0 0 0 2px #fff, 0 0 0 4.5px ${accent}` } : {}),
+            }}
+          />
+        );
+      })}
+      <label
+        className="relative ml-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-dashed transition-colors hover:scale-110"
+        style={{ borderColor: `${accent}99` }}
+        title="Свой оттенок"
+      >
+        <input
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : accent}
+          onChange={(e) => onChange(e.target.value)}
+          className="color-chip absolute inset-0 h-full w-full rounded-full opacity-0"
+          aria-label={`Свой оттенок: ${label}`}
+        />
+        <Plus
+          className="pointer-events-none h-5 w-5 transition-transform duration-300 hover:rotate-90"
+          style={{ color: accent }}
+        />
+      </label>
+      <span className="ml-auto text-sm text-[#6F4E37]/70">
+        {selected ? selected.name : "Свой оттенок"}
+      </span>
+    </div>
+  );
+}
+
+/** Плотность нанесения: лёгкий / средний / яркий */
+export function IntensityChips({
+  value,
+  onChange,
+}: {
+  value: 1 | 2 | 3;
+  onChange: (v: 1 | 2 | 3) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {([1, 2, 3] as const).map((i) => (
+        <OptionChip
+          key={i}
+          active={value === i}
+          onClick={() => onChange(i)}
+          testId={`intensity-${i}`}
+        >
+          {INTENSITY_LABELS[i]}
+        </OptionChip>
+      ))}
+    </div>
+  );
+}
+
+/** Финиш: матовый / сатиновый / глянцевый / мерцающий — у кого есть */
+export function FinishChips({
+  finishes,
+  value,
+  onChange,
+}: {
+  finishes: FinishOption[];
+  value?: FinishId;
+  onChange: (f: FinishId) => void;
+}) {
+  if (!finishes.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {finishes.map((f) => (
+        <OptionChip key={f.id} active={value === f.id} onClick={() => onChange(f.id)}>
+          {f.label}
+        </OptionChip>
+      ))}
+    </div>
+  );
+}
+
+/** Раскрывающаяся панель «Инструменты»: мультивыбор кистей/спонжа */
+export function ToolPicker({
+  toolIds,
+  selected,
+  onToggle,
+  title,
+  testId,
+}: {
+  toolIds: string[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  title: string;
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeCount = toolIds.filter((id) => selected.includes(id)).length;
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="rounded-xl border border-[#F8F1E1]/45 bg-[#F8F1E1]/45"
+    >
+      <CollapsibleTrigger
+        data-testid={testId}
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-xl font-semibold text-[#6F4E37]/85 transition-colors hover:text-[#6F4E37]"
+      >
+        <Wrench className="h-5 w-5 shrink-0" aria-hidden />
+        <span className="flex-1 leading-tight">{title}</span>
+        {activeCount > 0 && (
+          <span className="rounded-full bg-[#008B8B]/15 px-2.5 py-0.5 text-sm font-bold text-[#0A6E52]">
+            {activeCount}
+          </span>
+        )}
+        <ChevronDown
+          className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex flex-wrap gap-1.5 px-4 pb-3">
+          {toolIds.map((id) => {
+            const def = BRUSHES.find((b) => b.id === id);
+            if (!def) return null;
+            const Icon = TOOL_ICONS[id] ?? Brush;
+            const active = selected.includes(id);
+            const color = TOOL_COLORS[id] ?? "#008B8B";
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onToggle(id)}
+                aria-pressed={active}
+                title={def.hint}
+                className={cn(
+                  "flex h-11 items-center gap-2 rounded-full border px-4 text-lg font-semibold transition-all active:scale-95",
+                  active
+                    ? "border-transparent text-[#6F4E37] shadow-sm"
+                    : "border-[#6F4E37]/30 bg-white/70 text-[#6F4E37]/80 hover:bg-white"
+                )}
+                style={
+                  active
+                    ? {
+                        background: `linear-gradient(100deg, ${color}30, #F8F1E1 62%)`,
+                        borderColor: `${color}66`,
+                      }
+                    : {}
+                }
+              >
+                <Icon
+                  className="h-4 w-4 shrink-0"
+                  style={active ? { color } : undefined}
+                  aria-hidden
+                />
+                {def.label}
+              </button>
+            );
+          })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}

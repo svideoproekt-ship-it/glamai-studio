@@ -51,7 +51,7 @@ export interface BrushDef {
 }
 
 export interface StyleDef {
-  id: 1 | 2 | 3 | 4;
+  id: 1 | 2 | 3 | 4 | 5;
   label: string;
   en: string;
 }
@@ -219,41 +219,225 @@ export const BRUSHES: BrushDef[] = [
   },
 ];
 
-// Важно: стиль управляет только ПЛОТНОСТЬЮ нанесения перечисленных продуктов,
-// но не цветами — иначе слова "depth/definition/bold" уводят оттенки в темноту.
+// Стили образа — БЛОК 1 конструктора («Стиль, образ»). Управляет только
+// ПЛОТНОСТЬЮ нанесения перечисленных продуктов, но не цветами — иначе слова
+// "depth/definition/bold" уводят оттенки в темноту.
 // Формулировки короткие: промпт должен влезать в «внимание» edit-модели целиком.
-export const OVERALLS: StyleDef[] = [
+export const STYLES: StyleDef[] = [
   { id: 1, label: "Натуральный", en: "minimal barely-there application of the listed products" },
   { id: 2, label: "Дневной", en: "clean everyday application of the listed products" },
   { id: 3, label: "Вечерний", en: "evening application, a bit stronger and more defined, still elegant" },
   { id: 4, label: "Подиумный", en: "runway application at full strength, strictly in the listed shades" },
+  {
+    id: 5,
+    label: "Возрастной",
+    en: "age-graceful makeup for mature skin: soft hydrating satin finish, gentle warm shades, featherlight application around fine lines, nothing heavy and nothing drying",
+  },
 ];
 
-export function defaultProducts(): Record<ProductId, ProductState> {
-  const out = {} as Record<ProductId, ProductState>;
-  for (const p of PRODUCTS) {
-    out[p.id] = {
-      enabled: Boolean(p.defaultEnabled),
-      color: p.defaultColor,
+// ============================================================
+// КОНСТРУКТОР v36: три блока — «Стиль, образ» → «Лицо» → «Глаза»
+// ============================================================
+
+/** Блок 2 «Лицо»: помада, румяна, скульптор, хайлайтер */
+export type FaceProductId = "lips" | "blush" | "contour" | "highlighter";
+export const FACE_PRODUCT_IDS: FaceProductId[] = ["lips", "blush", "contour", "highlighter"];
+
+/** Блок 3 «Глаза»: ресницы (стрелки), брови, веки */
+export type EyeAreaId = "lashes" | "brows" | "lids";
+export const EYE_AREA_IDS: EyeAreaId[] = ["lashes", "brows", "lids"];
+
+export interface AreaOptionDef {
+  id: string;
+  label: string;
+  en: string;
+}
+
+/** Варианты «Ресницы»: форма стрелок (+ «только тушь») */
+export const LASH_OPTIONS: AreaOptionDef[] = [
+  { id: "none", label: "Без стрелки — только тушь", en: "no wing" },
+  { id: "classic", label: "Классическая стрелка", en: "classic winged eyeliner, the wing flicking upward from the outer corner" },
+  { id: "double", label: "Двойная стрелка", en: "double winged eyeliner, two parallel lines along the lash line" },
+  { id: "arabic", label: "Арабская стрелка", en: "Arabic-style eyeliner tracing the whole upper lid into a sharp wing" },
+  { id: "cat", label: "Кошачий глаз", en: "cat-eye eyeliner, elongated slanted wing" },
+  { id: "hollywood", label: "Голливудская стрелка", en: "Hollywood-style eyeliner, thin elegant deep-set wing" },
+  { id: "egyptian", label: "Египетская стрелка", en: "Egyptian-style eyeliner, straight heavy wing extending the whole upper lash line" },
+  { id: "smoky", label: "Дымчатая растушёвка", en: "smudged smoky pencil lash line, softly diffused" },
+];
+
+/** Варианты «Брови»: форма */
+export const BROW_OPTIONS: AreaOptionDef[] = [
+  { id: "straight", label: "Прямые", en: "straight brows" },
+  { id: "horizontal", label: "Горизонтальные", en: "horizontal low-arch brows" },
+  { id: "arched", label: "Дугообразные", en: "softly arched brows" },
+  { id: "curved", label: "Изогнутые домиком", en: "brows with a high curved peak" },
+  { id: "wide", label: "Широкие густые", en: "wide full brows" },
+  { id: "thin", label: "Тонкие изящные", en: "thin refined brows" },
+  { id: "natural", label: "Естественные пушистые", en: "natural fluffy brushed-up brows" },
+];
+
+/** Варианты «Веки»: техника нанесения теней */
+export const LID_OPTIONS: AreaOptionDef[] = [
+  { id: "banana", label: "Банан", en: "banana technique, crescent shading above the crease" },
+  { id: "loop", label: "Петля", en: "loop technique, color wrapping around the crease" },
+  { id: "bat", label: "Летучая мышь", en: "bat-wing technique, color lifted into a sharp outer wing" },
+  { id: "smoky", label: "Дымка (смоки-айс)", en: "smoky eyes, softly diffused shading" },
+  { id: "cut", label: "Кутикс (cut crease)", en: "cut crease, sharply separated lid color" },
+  { id: "hollywood", label: "Голливудская дымка", en: "Hollywood-style deep-set shading" },
+];
+
+export const EYE_OPTION_CATALOGS: Record<EyeAreaId, AreaOptionDef[]> = {
+  lashes: LASH_OPTIONS,
+  brows: BROW_OPTIONS,
+  lids: LID_OPTIONS,
+};
+
+/** Состояние одной области глаз: вкл/выкл, вариант, оттенок, плотность, финиш */
+export interface EyeAreaState {
+  enabled: boolean;
+  option: string;
+  color: string;
+  intensity: 1 | 2 | 3;
+  finish?: FinishId; // только для век
+}
+
+/** Инструменты лица (id из BRUSHES) и инструменты глаз */
+export const FACE_TOOLS: string[] = ["sponge", "fluffy", "fan"];
+export const EYE_TOOLS: string[] = ["flat", "fluffy", "pencil", "spoolie"];
+
+/** Что выбрал мастер в конструкторе — летит в /api/tryon и в сборку промпта */
+export interface SelectionInput {
+  style: number; // id из STYLES (1–5)
+  face: Partial<Record<FaceProductId, ProductState>>;
+  eyes: Partial<Record<EyeAreaId, EyeAreaState>>;
+  faceTools: string[];
+  eyeTools: string[];
+}
+
+/** Дефолты блока «Лицо»: всё выключено, цвет — первый оттенок палитры */
+export function defaultFace(): Record<FaceProductId, ProductState> {
+  const out = {} as Record<FaceProductId, ProductState>;
+  for (const id of FACE_PRODUCT_IDS) {
+    const def = PRODUCTS.find((p) => p.id === id);
+    out[id] = {
+      enabled: false,
+      color: def?.defaultColor ?? "#000000",
       intensity: 2,
-      finish: p.defaultFinish,
+      finish: def?.defaultFinish,
     };
   }
   return out;
 }
 
+/** Дефолты блока «Глаза»: всё выключено, вариант — самый универсальный */
+export function defaultEyes(): Record<EyeAreaId, EyeAreaState> {
+  const colorOf = (id: ProductId) => PRODUCTS.find((p) => p.id === id)?.defaultColor ?? "#000000";
+  return {
+    lashes: { enabled: false, option: "classic", color: colorOf("eyeliner"), intensity: 2 },
+    brows: { enabled: false, option: "natural", color: colorOf("brows"), intensity: 2 },
+    lids: { enabled: false, option: "banana", color: colorOf("eyeshadow"), intensity: 2, finish: "satin" },
+  };
+}
+
+const clampStyle = (v: unknown): number => {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : 2;
+  return (n >= 1 && n <= 5 ? n : 2) as 1 | 2 | 3 | 4 | 5;
+};
+
+const cleanTools = (list: unknown, allowed: string[]): string[] =>
+  Array.isArray(list) ? [...new Set(list.filter((x): x is string => typeof x === "string" && allowed.includes(x)))] : [];
+
+/**
+ * Приводит тело запроса к полному SelectionInput: дозаполняет дефолты,
+ * отбрасывает неизвестные id и понимает СТАРЫЙ формат конструктора
+ * (products/brushes/overall) — для вкладок, открытых до обновления.
+ */
+export function normalizeSelection(
+  raw: {
+    style?: unknown;
+    face?: Record<string, ProductState>;
+    eyes?: Record<string, EyeAreaState>;
+    faceTools?: unknown;
+    eyeTools?: unknown;
+    legacy?: { products?: Record<string, ProductState>; brushes?: unknown; overall?: unknown };
+  }
+): SelectionInput {
+  // Полные Record'ы: циклы ниже заполняют ВСЕ id, поэтому тип без Partial —
+  // и в legacy-блоке не нужны лишние проверки на undefined
+  const face = {} as Record<FaceProductId, ProductState>;
+  for (const id of FACE_PRODUCT_IDS) {
+    const s = raw.face?.[id];
+    face[id] = {
+      enabled: Boolean(s?.enabled),
+      color: s && HEX_RE.test(s.color) ? s.color : defaultFace()[id].color,
+      intensity: s?.intensity === 1 || s?.intensity === 3 ? s.intensity : 2,
+      finish: s?.finish,
+    };
+  }
+
+  const eyes = {} as Record<EyeAreaId, EyeAreaState>;
+  for (const id of EYE_AREA_IDS) {
+    const s = raw.eyes?.[id];
+    const base = defaultEyes()[id];
+    const catalog = EYE_OPTION_CATALOGS[id];
+    const option = s && catalog.some((o) => o.id === s.option) ? s.option : base.option;
+    eyes[id] = {
+      enabled: Boolean(s?.enabled),
+      option,
+      color: s && HEX_RE.test(s.color) ? s.color : base.color,
+      intensity: s?.intensity === 1 || s?.intensity === 3 ? s.intensity : 2,
+      finish: id === "lids" ? (s?.finish === "matte" || s?.finish === "shimmer" ? s.finish : "satin") : undefined,
+    };
+  }
+
+  // Совместимость: старый клиент присылает products/brushes/overall
+  const legacy = raw.legacy;
+  const legacyProducts = legacy?.products;
+  const hasNewShape = Object.values(raw.face ?? {}).some(Boolean) || Object.values(raw.eyes ?? {}).some(Boolean);
+  if (!hasNewShape && legacyProducts) {
+    const mapIntensity = (v: unknown): 1 | 2 | 3 => (v === 1 || v === 3 ? v : 2);
+    for (const id of FACE_PRODUCT_IDS) {
+      const s = legacyProducts[id];
+      if (s?.enabled) face[id] = { enabled: true, color: HEX_RE.test(s.color) ? s.color : face[id].color, intensity: mapIntensity(s.intensity), finish: s.finish };
+    }
+    const esh = legacyProducts["eyeshadow"];
+    if (esh?.enabled) eyes.lids = { enabled: true, option: "banana", color: HEX_RE.test(esh.color) ? esh.color : eyes.lids.color, intensity: mapIntensity(esh.intensity), finish: esh.finish === "matte" || esh.finish === "shimmer" ? esh.finish : "satin" };
+    const lin = legacyProducts["eyeliner"];
+    const mas = legacyProducts["mascara"];
+    if (lin?.enabled || mas?.enabled) {
+      eyes.lashes = {
+        enabled: true,
+        option: lin?.enabled ? "classic" : "none",
+        color: HEX_RE.test(lin?.color ?? "") ? (lin?.color as string) : eyes.lashes.color,
+        intensity: mapIntensity(lin?.intensity ?? mas?.intensity),
+      };
+    }
+    const br = legacyProducts["brows"];
+    if (br?.enabled) eyes.brows = { enabled: true, option: "natural", color: HEX_RE.test(br.color) ? br.color : eyes.brows.color, intensity: mapIntensity(br.intensity) };
+  }
+
+  const legacyBrushes = Array.isArray(legacy?.brushes) ? (legacy?.brushes as string[]) : [];
+  const faceTools = cleanTools(raw.faceTools, FACE_TOOLS).length || !legacyBrushes.length
+    ? cleanTools(raw.faceTools, FACE_TOOLS)
+    : legacyBrushes.filter((b) => FACE_TOOLS.includes(b));
+  const eyeTools = cleanTools(raw.eyeTools, EYE_TOOLS).length || !legacyBrushes.length
+    ? cleanTools(raw.eyeTools, EYE_TOOLS)
+    : legacyBrushes.filter((b) => EYE_TOOLS.includes(b));
+
+  return { style: clampStyle(raw.style ?? legacy?.overall), face, eyes, faceTools, eyeTools };
+}
+
 export interface PromptBuildInput {
-  products: Partial<Record<string, ProductState>>;
-  brushes: string[];
-  overall: number;
+  selection: SelectionInput;
   userPrompt: string;
 }
 
-export function hasSelection(
-  products: Partial<Record<string, ProductState>>,
-  userPrompt: string
-): boolean {
-  return Boolean(userPrompt.trim()) || Object.values(products).some((p) => p?.enabled);
+export function hasSelection(sel: SelectionInput, userPrompt: string): boolean {
+  return (
+    Boolean(userPrompt.trim()) ||
+    Object.values(sel.face).some((p) => p?.enabled) ||
+    Object.values(sel.eyes).some((e) => e?.enabled)
+  );
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -391,75 +575,99 @@ function colorPhrase(hex: string, presetEn?: string): string {
   return up ? `${core} (hex ${up})` : core;
 }
 
-// Цветовая фраза продукта: пресет палитры или словесное описание произвольного hex
-function colorOf(input: PromptBuildInput, id: ProductId): string {
-  const def = PRODUCTS.find((p) => p.id === id);
+// Цветовая фраза для hex из палитры конкретного продукта: имя пресета (если есть)
+// + словесное описание + hex-якорь
+function colorPhraseFor(hex: string, productId: ProductId): string {
+  const def = PRODUCTS.find((p) => p.id === productId);
   if (!def) return "neutral";
-  const state = input.products[id];
-  const hex = state && HEX_RE.test(state.color) ? state.color : def.defaultColor;
-  const preset = def.swatches.find((s) => s.hex.toLowerCase() === hex.toLowerCase());
-  return colorPhrase(hex, preset?.en);
+  const valid = HEX_RE.test(hex) ? hex : def.defaultColor;
+  const preset = def.swatches.find((s) => s.hex.toLowerCase() === valid.toLowerCase());
+  return colorPhrase(valid, preset?.en);
 }
 
-// Сбор элементов образа — общий для промпта и для QA-аудита. Компактный формат.
-function collectLookItems(input: PromptBuildInput): string[] {
+// Сбор элементов образа из состояния конструктора — общий для промпта и QA-аудита.
+// Компактный формат: сначала лицо, потом глаза. Выбранный стиль (блок 1) задаёт
+// плотность нанесения всего списка.
+function collectLookItems(sel: SelectionInput): string[] {
   const items: string[] = [];
-  for (const def of PRODUCTS) {
-    const state = input.products[def.id];
-    if (!state?.enabled) continue;
-    const enColor = colorOf(input, def.id);
-    const int = INTENSITY_EN[state.intensity ?? 2];
-    const fin = def.finishes && state.finish ? FINISHES[state.finish]?.en ?? "satin" : null;
-    const finWord = fin ? `, ${fin}` : "";
 
-    switch (def.id) {
-      case "lips":
-        items.push(`lips: lipstick ${enColor}${finWord}, ${int}`);
-        break;
-      case "eyeshadow":
-        items.push(`eyelids: eyeshadow ${enColor}${finWord}, ${int}, blended on the lid`);
-        break;
-      case "eyeliner":
-        items.push(`lash line: ${EYELINER_THICKNESS[state.intensity ?? 2]} eyeliner ${enColor}`);
-        break;
-      case "mascara":
-        items.push(
-          `lashes: ${enColor} mascara, ${
-            state.intensity === 3 ? "volume" : state.intensity === 2 ? "natural definition" : "one light coat"
-          }`
-        );
-        break;
-      case "brows":
-        items.push(`brows: filled ${enColor}, hair-like strokes`);
-        break;
-      case "blush":
-        items.push(`cheeks: blush ${enColor}${finWord}, ${int}`);
-        break;
-      case "contour":
-        items.push(
-          `under cheekbones and jaw: contour ${enColor}, ${
-            state.intensity === 3 ? "visible" : state.intensity === 2 ? "soft" : "barely visible"
-          }`
-        );
-        break;
-      case "highlighter":
-        items.push(`top of cheekbones: highlighter ${enColor}, ${HIGHLIGHTER_EN[state.intensity ?? 2]}`);
-        break;
-    }
+  // —— Лицо ——
+  const lips = sel.face.lips;
+  if (lips?.enabled) {
+    const fin = lips.finish ? `, ${FINISHES[lips.finish]?.en ?? "satin"}` : "";
+    items.push(`lips: lipstick ${colorPhraseFor(lips.color, "lips")}${fin}, ${INTENSITY_EN[lips.intensity]}`);
   }
+  const blush = sel.face.blush;
+  if (blush?.enabled) {
+    const fin = blush.finish ? `, ${FINISHES[blush.finish]?.en ?? "satin"}` : "";
+    items.push(`cheeks: blush ${colorPhraseFor(blush.color, "blush")}${fin}, ${INTENSITY_EN[blush.intensity]}`);
+  }
+  const contour = sel.face.contour;
+  if (contour?.enabled) {
+    items.push(
+      `under cheekbones and jaw: contour ${colorPhraseFor(contour.color, "contour")}, ${
+        contour.intensity === 3 ? "visible" : contour.intensity === 2 ? "soft" : "barely visible"
+      }`
+    );
+  }
+  const highlighter = sel.face.highlighter;
+  if (highlighter?.enabled) {
+    items.push(
+      `top of cheekbones: highlighter ${colorPhraseFor(highlighter.color, "highlighter")}, ${HIGHLIGHTER_EN[highlighter.intensity]}`
+    );
+  }
+
+  // —— Глаза ——
+  const lashes = sel.eyes.lashes;
+  if (lashes?.enabled) {
+    const opt = LASH_OPTIONS.find((o) => o.id === lashes.option) ?? LASH_OPTIONS[1];
+    if (opt.id !== "none") {
+      items.push(
+        `lash line: ${EYELINER_THICKNESS[lashes.intensity]} ${opt.en} in ${colorPhraseFor(lashes.color, "eyeliner")}`
+      );
+    }
+    items.push(
+      `lashes: ${
+        lashes.intensity === 3
+          ? "volumizing"
+          : lashes.intensity === 2
+            ? "naturally defined"
+            : "one light coat of"
+      } black mascara`
+    );
+  }
+  const brows = sel.eyes.brows;
+  if (brows?.enabled) {
+    const opt = BROW_OPTIONS.find((o) => o.id === brows.option) ?? BROW_OPTIONS[6];
+    items.push(
+      `brows: shaped as ${opt.en}, filled ${colorPhraseFor(brows.color, "brows")}, hair-like strokes, ${INTENSITY_EN[brows.intensity]}`
+    );
+  }
+  const lids = sel.eyes.lids;
+  if (lids?.enabled) {
+    const opt = LID_OPTIONS.find((o) => o.id === lids.option) ?? LID_OPTIONS[0];
+    const fin = lids.finish ? `, ${FINISHES[lids.finish]?.en ?? "satin"}` : "";
+    items.push(
+      `eyelids: eyeshadow ${colorPhraseFor(lids.color, "eyeshadow")}${fin}, ${opt.en}, ${INTENSITY_EN[lids.intensity]}`
+    );
+  }
+
   return items;
 }
 
 export function buildPrompt(input: PromptBuildInput): string {
+  const sel = input.selection;
   const parts: string[] = [];
 
   // Идентичность — в начало: модели держат начало и конец промпта лучше всего.
   // Всё сжато: длинный промпт (>600 токенов) теряет середину — цвета и симметрию.
   parts.push(
-    "Photo edit: change ONLY the makeup. Keep the person 100% identical — same face shape and features, same skin tone with natural texture, same eyes (same state, gaze and shape; the eyes are never painted over), same lashes unless a lash tint is listed, same hair, clothes, background and pose."
+    "Photo edit: change ONLY the makeup. Keep the person 100% identical — same face shape and features, same skin tone with natural texture, same eyes (same state, gaze and shape; the eyes are never painted over), same lashes unless lashes are listed below, brows keep their shape unless a brow style is listed below, same hair, clothes, background and pose."
   );
 
-  const enabledCount = Object.values(input.products).filter((p) => p?.enabled).length;
+  const enabledCount =
+    Object.values(sel.face).filter((p) => p?.enabled).length +
+    Object.values(sel.eyes).filter((e) => e?.enabled).length;
   if (enabledCount > 0 && enabledCount <= 2) {
     parts.push(
       "Apply ONLY the products listed below; every other area stays bare and natural, exactly as in the photo. Do not add anything unlisted — no extra blush, bronzer, eyeshadow or lip tint."
@@ -470,10 +678,11 @@ export function buildPrompt(input: PromptBuildInput): string {
     );
   }
 
-  const style = OVERALLS.find((s) => s.id === input.overall) ?? OVERALLS[1];
+  // Блок 1 «Стиль, образ»: выбранная кнопка задаёт плотность нанесения всего списка
+  const style = STYLES.find((s) => s.id === sel.style) ?? STYLES[1];
   parts.push(`Style: ${style.en}.`);
 
-  const chosen = collectLookItems(input);
+  const chosen = collectLookItems(sel);
   const wish = input.userPrompt.trim();
 
   if (chosen.length) {
@@ -488,7 +697,9 @@ export function buildPrompt(input: PromptBuildInput): string {
     parts.push(`Apply the makeup described in the note: "${wish}".`);
   }
 
-  const techniques = input.brushes
+  // Инструменты (блок «Лицо» и блок «Глаза»): одна и та же пушистая кисть может
+  // быть выбрана в обоих блоках — дедуплицируем идентификаторы
+  const techniques = [...new Set([...sel.faceTools, ...sel.eyeTools])]
     .map((id) => BRUSHES.find((b) => b.id === id)?.en)
     .filter(Boolean) as string[];
   if (techniques.length) {
@@ -504,7 +715,7 @@ export function buildPrompt(input: PromptBuildInput): string {
 
 // Краткая сводка «что просили» — вход для QA-аудита в API
 export function buildRequestedSummary(input: PromptBuildInput): string {
-  const items = collectLookItems(input);
+  const items = collectLookItems(input.selection);
   if (items.length) return items.join("; ");
   const wish = input.userPrompt.trim();
   return wish ? `the makeup described in the note: "${wish}"` : "a clean natural look";

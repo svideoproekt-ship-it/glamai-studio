@@ -8,12 +8,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { PhotoDropzone, type PhotoValue } from "@/components/glam/PhotoDropzone";
-import { PalettePanel } from "@/components/glam/PalettePanel";
-import { BrushPanel } from "@/components/glam/BrushPanel";
+import { StylePanel } from "@/components/glam/StylePanel";
+import { FacePanel } from "@/components/glam/FacePanel";
+import { EyePanel } from "@/components/glam/EyePanel";
 import { ResultPanel } from "@/components/glam/ResultPanel";
 import {
-  defaultProducts,
-  type ProductId,
+  defaultEyes,
+  defaultFace,
+  type EyeAreaId,
+  type EyeAreaState,
+  type FaceProductId,
   type ProductState,
 } from "@/lib/makeup";
 import AuthGate, { openTelegramChat, useAuth } from "@/components/glam/AuthGate";
@@ -91,9 +95,12 @@ function Studio() {
   const [mode, setMode] = useState<Mode>("prompt");
   const [modelPhoto, setModelPhoto] = useState<PhotoValue | null>(null);
   const [refPhoto, setRefPhoto] = useState<PhotoValue | null>(null);
-  const [products, setProducts] = useState<Record<ProductId, ProductState>>(defaultProducts);
-  const [brushes, setBrushes] = useState<string[]>(["fluffy"]);
-  const [overall, setOverall] = useState<number>(2);
+  // Конструктор v36: три блока — «Стиль, образ» → «Лицо» → «Глаза»
+  const [style, setStyle] = useState(2);
+  const [face, setFace] = useState<Record<FaceProductId, ProductState>>(defaultFace);
+  const [eyes, setEyes] = useState<Record<EyeAreaId, EyeAreaState>>(defaultEyes);
+  const [faceTools, setFaceTools] = useState<string[]>(["sponge"]);
+  const [eyeTools, setEyeTools] = useState<string[]>(["fluffy"]);
   const [promptText, setPromptText] = useState("");
   const [refComment, setRefComment] = useState("");
   const [fastMode, setFastMode] = useState(false);
@@ -123,12 +130,22 @@ function Studio() {
     };
   }, []);
 
-  const patchProduct = useCallback((id: ProductId, patch: Partial<ProductState>) => {
-    setProducts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  const patchFace = useCallback((id: FaceProductId, patch: Partial<ProductState>) => {
+    setFace((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }, []);
 
-  const toggleBrush = useCallback((id: string) => {
-    setBrushes((prev) =>
+  const patchEyes = useCallback((id: EyeAreaId, patch: Partial<EyeAreaState>) => {
+    setEyes((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  }, []);
+
+  const toggleFaceTool = useCallback((id: string) => {
+    setFaceTools((prev) =>
+      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
+    );
+  }, []);
+
+  const toggleEyeTool = useCallback((id: string) => {
+    setEyeTools((prev) =>
       prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
     );
   }, []);
@@ -153,10 +170,12 @@ function Studio() {
       return;
     }
     if (mode === "prompt") {
-      const anyEnabled = Object.values(products).some((p) => p.enabled);
+      const anyEnabled =
+        Object.values(face).some((p) => p.enabled) ||
+        Object.values(eyes).some((e) => e.enabled);
       if (!anyEnabled && !promptText.trim()) {
         showError(
-          "Соберите образ в палитре (включите хотя бы один продукт) или опишите его словами."
+          "Включите хотя бы один продукт в блоках «Лицо» или «Глаза» или опишите образ словами."
         );
         return;
       }
@@ -177,9 +196,11 @@ function Studio() {
           modelPhoto: modelPhoto.dataUrl,
           ratio: modelPhoto.ratio,
           referencePhoto: mode === "reference" ? refPhoto?.dataUrl : undefined,
-          products: mode === "prompt" ? products : undefined,
-          brushes: mode === "prompt" ? brushes : undefined,
-          overall,
+          style,
+          face,
+          eyes,
+          faceTools,
+          eyeTools,
           fastMode,
           userPrompt: mode === "prompt" ? promptText : refComment,
         }),
@@ -237,10 +258,11 @@ function Studio() {
     mode,
     modelPhoto,
     refPhoto,
-    products,
-    brushes,
-    overall,
-    fastMode,
+    style,
+    face,
+    eyes,
+    faceTools,
+    eyeTools,
     promptText,
     refComment,
     showError,
@@ -443,38 +465,56 @@ function Studio() {
                   />
                 </section>
 
+                {/* БЛОК 1 «Стиль, образ» — сразу после фото клиента */}
+                <section
+                  className="green-card pop-in rounded-2xl p-4"
+                  style={{ animationDelay: "45ms" }}
+                >
+                  <SectionTitle>Стиль, образ</SectionTitle>
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    Из выбранного образа ИИ в дальнейшем нанесёт палитру красок: стиль
+                    задаёт плотность и характер всего макияжа.
+                  </p>
+                  <StylePanel style={style} onChange={setStyle} />
+                </section>
+
+                {/* БЛОК 2 «Лицо» */}
                 <section
                   className="green-card pop-in rounded-2xl p-4"
                   style={{ animationDelay: "90ms" }}
                 >
-                  <SectionTitle>Палитра</SectionTitle>
+                  <SectionTitle>Лицо</SectionTitle>
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Включите продукт и выберите оттенок — ИИ подберёт максимально близкий
-                    вариант. Выключенные продукты остаются без макияжа.
+                    Включите продукт и выберите оттенок — нанесётся в выбранном стиле.
                   </p>
-                  <PalettePanel products={products} onPatch={patchProduct} />
+                  <FacePanel
+                    face={face}
+                    onPatch={patchFace}
+                    tools={faceTools}
+                    onToggleTool={toggleFaceTool}
+                  />
                 </section>
 
+                {/* БЛОК 3 «Глаза» */}
                 <section
                   className="green-card pop-in rounded-2xl p-4"
-                  style={{ animationDelay: "180ms" }}
+                  style={{ animationDelay: "135ms" }}
                 >
-                  <SectionTitle>Кисти и инструменты</SectionTitle>
+                  <SectionTitle>Глаза</SectionTitle>
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Кисти задают технику нанесения (растушёвка, чёткость), а не цвет. Цвет —
-                    в палитре.
+                    Формы стрелок и бровей, техника век — у каждой области своя палитра.
                   </p>
-                  <BrushPanel
-                    brushes={brushes}
-                    onToggle={toggleBrush}
-                    overall={overall}
-                    onOverall={setOverall}
+                  <EyePanel
+                    eyes={eyes}
+                    onPatch={patchEyes}
+                    tools={eyeTools}
+                    onToggleTool={toggleEyeTool}
                   />
                 </section>
 
                 <section
                   className="green-card pop-in rounded-2xl p-4"
-                  style={{ animationDelay: "270ms" }}
+                  style={{ animationDelay: "180ms" }}
                 >
                   <SectionTitle>Промпт</SectionTitle>
                   <Textarea
