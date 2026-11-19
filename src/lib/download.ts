@@ -14,6 +14,16 @@
 
 export type SaveMethod = "share" | "download" | "tab" | "opened-raw";
 
+/** Мы внутри WebView Telegram (Mini App) — там молча проглатываются и
+ *  blob-скачивания, и window.open: для фото нужен либо бот, либо
+ *  долгое нажатие на картинку, показанную внутри самой студии. */
+export function isTelegramWebView(): boolean {
+  if (typeof window === "undefined") return false;
+  const t = (window as unknown as { Telegram?: { WebApp?: unknown } }).Telegram?.WebApp;
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  return Boolean(t) || /Telegram/i.test(ua);
+}
+
 function dataUrlToBlob(dataUrl: string): Blob | null {
   const m = /^data:([^;,]+);base64,([\s\S]*)$/.exec(dataUrl);
   if (!m) return null;
@@ -48,6 +58,48 @@ function extOf(type: string): string {
   if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
   if (type.includes("webp")) return "webp";
   return "png";
+}
+
+/**
+ * Настоящее системное «Поделиться» с файлом-картинкой: на телефоне в меню
+ * видны Telegram, MAX, WhatsApp и «Сохранить в галерею» — мастер выбирает сам.
+ *
+ * Возвращает:
+ *   "share"       — меню открылось (или мастер сам его закрыл — это не сбой);
+ *   "unsupported" — системного «Поделиться» здесь нет (WebView и т.п.);
+ *   "failed"      — меню не удалось открыть (нет картинки или ошибка).
+ */
+export async function shareImage(
+  src: string,
+  title = "GlamAI Studio"
+): Promise<"share" | "unsupported" | "failed"> {
+  if (typeof window === "undefined") return "failed";
+  const blob = await srcToBlob(src);
+  if (!blob) return "failed";
+  const file = new File([blob], `glamai-look-${Date.now()}.${extOf(blob.type)}`, {
+    type: blob.type || "image/png",
+  });
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+  if (!("share" in nav)) return "unsupported";
+  // Часть оболочек врёт в canShare({files}) — но.share() всё равно открывает
+  // меню, поэтому сначала пробуем настоящее меню, а не отдаёмся фолбэку сразу
+  const can = !nav.canShare || nav.canShare({ files: [file] });
+  if (!can) {
+    try {
+      await nav.share({ files: [file], title });
+      return "share";
+    } catch {
+      return "unsupported";
+    }
+  }
+  try {
+    await nav.share({ files: [file], title });
+    return "share";
+  } catch (err) {
+    // AbortError — мастер сам закрыл меню, это не сбой
+    if ((err as Error)?.name === "AbortError") return "share";
+    return "failed";
+  }
 }
 
 /**

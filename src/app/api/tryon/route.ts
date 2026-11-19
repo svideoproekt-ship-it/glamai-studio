@@ -17,6 +17,7 @@ import { ensureZaiConfig } from "@/lib/zai-config";
 import { visionChatAny } from "@/lib/vision";
 import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { generateMakeupImage, sizeForGlmImage, type ImagePipeline } from "@/lib/zai-image";
+import { BRAND_OVERLAY_PNG } from "@/lib/brand-overlay";
 import { consumeAfterSuccess, gateTryon } from "@/lib/gate";
 
 // Vercel с Fluid compute (по умолчанию для новых проектов) даёт на Hobby план
@@ -43,6 +44,40 @@ async function toJpegDataUrl(pngBase64: string): Promise<string> {
   const buffer = Buffer.from(pngBase64, "base64");
   const jpeg = await sharp(buffer).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
   return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+}
+
+// Фирменная подпись «Образ GlamAI Studio» — выжигаем в готовый образ (низ
+// по центру). Она приходит В САМОМ фото: и в чате бота, и в галерее, и когда
+// мастер пересылает клиенту. Готовый PNG с запечёнными шрифтами: на Vercel
+// своих шрифтов нет, поэтому подпись не рисуется на сервере, а накладывается.
+let brandOverlay: Buffer | null = null;
+async function stampBrand(dataUrl: string): Promise<string> {
+  try {
+    const m = /^data:image\/(jpeg|png);base64,([\s\S]*)$/.exec(dataUrl);
+    if (!m) return dataUrl;
+    if (!brandOverlay) brandOverlay = Buffer.from(BRAND_OVERLAY_PNG.split(",")[1], "base64");
+    const base = Buffer.from(m[2], "base64");
+    const meta = await sharp(base).metadata();
+    const w = meta.width ?? 0;
+    const h = meta.height ?? 0;
+    if (!w || !h || w < 480) return dataUrl;
+    const ovW = Math.round(w * 0.62);
+    const ov = await sharp(brandOverlay).resize({ width: ovW }).png().toBuffer();
+    const ovMeta = await sharp(ov).metadata();
+    const ovH = ovMeta.height ?? 0;
+    if (!ovH) return dataUrl;
+    const left = Math.round((w - ovW) / 2);
+    const top = Math.max(0, Math.round(h - ovH - h * 0.035));
+    const out = await sharp(base)
+      .composite([{ input: ov, left, top }])
+      .jpeg({ quality: 92, mozjpeg: true })
+      .toBuffer();
+    return `data:image/jpeg;base64,${out.toString("base64")}`;
+  } catch (err) {
+    // Подпись — украшение: при любой ошибке отдаём фото без неё, генерация не зря
+    console.warn("[tryon] brand stamp skipped:", err instanceof Error ? err.message : err);
+    return dataUrl;
+  }
 }
 
 // Понятная русская ошибка вместо сырого сообщения SDK/сети.
@@ -428,6 +463,10 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
+    // Фирменная подпись на готовом образе — ПОСЛЕ QA-цикла: аудитор сравнивает
+    // фото без подписи и не помечает её как «лишний добавленный текст»
+    imageDataUrl = await stampBrand(imageDataUrl);
 
     // Списываем генерацию ТОЛЬКО после успешного результата —
     // неудачные попытки лимит не расходуют

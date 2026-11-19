@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, RotateCcw, Send, Share2, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Info, RotateCcw, Send, Share2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { saveImageFile } from "@/lib/download";
+import { isTelegramWebView, saveImageFile, shareImage } from "@/lib/download";
 import {
   Collapsible,
   CollapsibleContent,
@@ -46,6 +46,7 @@ export function ResultPanel({
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [saveHint, setSaveHint] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState(false);
 
   useEffect(() => {
     if (!loading) return;
@@ -117,27 +118,19 @@ export function ResultPanel({
     );
   }
 
-  // Кнопка «Поделиться»: в Telegram на телефоне открывает системное меню
-  // («Сохранить в Фото» / переслать клиенту). Если меню недоступно —
-  // тихий фолбэк на скачивание, но в WebView Telegram тот может молча
-  // не сработать — поэтому честная подсказка с «Отправить в Telegram»
+  // Кнопка «Поделиться»: сначала настоящее системное меню с файлом — в нём
+  // видны Telegram, MAX и «Сохранить в галерею», мастер выбирает сам.
+  // Если системного меню здесь нет (WebView Telegram его прячет) — открываем
+  // фото крупно ВНУТРИ студии: долгое нажатие на картинку даёт родное меню
+  // «Сохранить/Поделиться». Реакция есть всегда — молчаливых провалов больше нет
   const handleShare = async () => {
     if (!result || saving) return;
     setSaving(true);
     setSaveHint(null);
     try {
-      const how = await saveImageFile(result, `glamai-look-${Date.now()}`);
-      if (how === "download") {
-        setSaveHint(
-          "Файл ушёл в «Загрузки». Если не нашли его там (WebView Telegram иногда не сохраняет файлы) — нажмите «Отправить в Telegram»: образ придёт в чат с ботом, оттуда «Сохранить в галерею»."
-        );
-        setTimeout(() => setSaveHint(null), 15_000);
-      } else if (how === "tab" || how === "opened-raw") {
-        setSaveHint(
-          "Открыли образ в новой вкладке — удерживайте палец на картинке и выберите «Сохранить в Фото» (на компьютере: правый клик → «Сохранить как»)."
-        );
-        setTimeout(() => setSaveHint(null), 15_000);
-      }
+      const how = await shareImage(result);
+      if (how === "share") return; // меню открылось или мастер сам его закрыл
+      setLightbox(true);
     } finally {
       setSaving(false);
     }
@@ -172,9 +165,15 @@ export function ResultPanel({
     }
   };
 
-  // Кнопка «Скачать файлом»: именно файл в «Загрузки»/«Фото», без меню «Поделиться»
+  // Кнопка «Скачать файлом»: именно файл в «Загрузки»/«Фото», без меню «Поделиться».
+  // В WebView Telegram скачивание молча проглатывается — там сразу фото крупно
+  // внутри студии (долгое нажатие → «Сохранить в галерею»), никакой тишины
   const handleDownload = async () => {
     if (!result || saving) return;
+    if (isTelegramWebView()) {
+      setLightbox(true);
+      return;
+    }
     setSaving(true);
     setSaveHint(null);
     try {
@@ -314,6 +313,41 @@ export function ResultPanel({
             </pre>
           </CollapsibleContent>
         </Collapsible>
+      )}
+
+      {/* Фото крупно внутри студии: долгое нажатие на картинку даёт родное меню
+          телефона «Сохранить в галерею» / «Поделиться» (в нём есть и MAX) —
+          работает там, где WebView Telegram глотает скачивания и новые вкладки */}
+      {lightbox && result && (
+        <div
+          className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+          onClick={() => setLightbox(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Образ крупным планом"
+          data-testid="lightbox"
+        >
+          <img
+            src={result}
+            alt="Образ GlamAI Studio крупным планом"
+            className="max-h-[70vh] max-w-full rounded-xl shadow-2xl"
+            draggable={false}
+            onClick={(e) => e.stopPropagation()}
+            data-testid="lightbox-image"
+          />
+          <p className="mt-4 max-w-md text-center text-sm leading-relaxed text-[#F8F1E1]/85">
+            Удерживайте палец на фото → «Сохранить в галерею» или «Поделиться» —
+            в меню можно выбрать и MAX.
+          </p>
+          <Button
+            variant="outline"
+            className="mt-4 h-9 border-[#F8F1E1]/35 text-[#F8F1E1] hover:bg-white/10"
+            onClick={() => setLightbox(false)}
+          >
+            <X className="h-4 w-4" aria-hidden />
+            Закрыть
+          </Button>
+        </div>
       )}
     </div>
   );

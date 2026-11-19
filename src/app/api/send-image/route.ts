@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     const form = new FormData();
     form.append("chat_id", String(tid));
-    form.append("caption", "Образ GlamAI Studio 💄\nСохранить: долгое нажатие → «Сохранить в галерею». Переслать клиенту: «Переслать».");
+    form.append("caption", "Образ GlamAI Studio 💄");
     form.append("photo", new Blob([new Uint8Array(bytes)], { type: mime }), `glamai-look-${Date.now()}.${ext}`);
 
     const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
