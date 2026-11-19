@@ -14,6 +14,32 @@
 
 export type SaveMethod = "share" | "download" | "tab" | "opened-raw";
 
+/** Открыть внешнюю ссылку так, чтобы её не проглотил WebView Telegram:
+ *  внутри Mini App — штатный openLink (он открывает СИСТЕМНЫЙ браузер,
+ *  где «Сохранить картинку» работает всегда), в обычном браузере — новая
+ *  вкладка. mailto openLink не поддерживает — отдаём навигации браузера. */
+export function openExternal(url: string): void {
+  if (typeof window === "undefined") return;
+  const app = (
+    window as unknown as {
+      Telegram?: { WebApp?: { openLink?: (u: string) => void } };
+    }
+  ).Telegram?.WebApp;
+  if (url.startsWith("mailto:")) {
+    window.location.href = url;
+    return;
+  }
+  if (app?.openLink) {
+    try {
+      app.openLink(url);
+      return;
+    } catch {
+      /* упадём в обычную навигацию ниже */
+    }
+  }
+  window.open(url, "_blank", "noopener");
+}
+
 /** Мы внутри WebView Telegram (Mini App) — там молча проглатываются и
  *  blob-скачивания, и window.open: для фото нужен либо бот, либо
  *  долгое нажатие на картинку, показанную внутри самой студии. */

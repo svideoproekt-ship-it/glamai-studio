@@ -1,11 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Info, RotateCcw, Share2, Sparkles, X } from "lucide-react";
+import {
+  ChevronDown,
+  Copy,
+  Download,
+  ExternalLink,
+  Info,
+  Link2,
+  RotateCcw,
+  Share2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   isIosDevice,
   isTelegramWebView,
+  openExternal,
   saveImageFile,
   shareImage,
 } from "@/lib/download";
@@ -58,6 +70,9 @@ export function ResultPanel({
   const [saveHint, setSaveHint] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Ссылка на фото /f/<id> (v40) — универсальный путь к клиенту и к галерее
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
 
   useEffect(() => {
     if (!loading) return;
@@ -65,6 +80,12 @@ export function ResultPanel({
     const t = setInterval(() => setTick((x) => x + 1), 2800);
     return () => clearInterval(t);
   }, [loading]);
+
+  // Новый образ — новая ссылка: старая остаётся жить свои 7 дней на сервере,
+  // но панель под фото сбрасываем, чтобы не показать чужой адрес
+  useEffect(() => {
+    setLinkUrl(null);
+  }, [result]);
 
   if (loading) {
     const status = STATUSES[tick % STATUSES.length];
@@ -147,6 +168,76 @@ export function ResultPanel({
     }
   };
 
+  // Ссылка на фото (v40): образ сохраняется на сервере и получает адрес
+  // /f/<id>. Ссылка проходит любым мессенджером без вложений, а страница
+  // фото в настоящем браузере сохраняется в галерею всегда. Один образ —
+  // одна ссылка: повторные нажатия переиспользуют уже созданную.
+  const ensureLinkUrl = async (): Promise<string | null> => {
+    if (linkUrl) return linkUrl;
+    if (!result || linkBusy) return null;
+    setLinkBusy(true);
+    try {
+      const res = await fetch("/api/links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: result }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        id?: string;
+        error?: string;
+      };
+      if (!data.ok || !data.id) {
+        setSaveHint(data.error ?? "Не удалось создать ссылку, попробуйте ещё раз.");
+        setTimeout(() => setSaveHint(null), 15_000);
+        return null;
+      }
+      const url = `${window.location.origin}/f/${data.id}`;
+      setLinkUrl(url);
+      return url;
+    } catch {
+      setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
+      setTimeout(() => setSaveHint(null), 12_000);
+      return null;
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const handleMakeLink = async () => {
+    const url = await ensureLinkUrl();
+    if (url) {
+      setSaveHint(
+        "Ссылка готова — отправьте её клиенту в любом мессенджере или откройте сами и нажмите «Сохранить фото»."
+      );
+      setTimeout(() => setSaveHint(null), 15_000);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!linkUrl) return;
+    try {
+      await navigator.clipboard.writeText(linkUrl);
+      setSaveHint("Ссылка скопирована — вставьте её в сообщение клиенту.");
+    } catch {
+      // Clipboard API бывает недоступен — резервный путь через textarea
+      const ta = document.createElement("textarea");
+      ta.value = linkUrl;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        setSaveHint("Ссылка скопирована — вставьте её в сообщение клиенту.");
+      } catch {
+        setSaveHint(linkUrl); // покажем ссылку — её можно выделить руками
+      }
+      ta.remove();
+    }
+    setTimeout(() => setSaveHint(null), 12_000);
+  };
+
   // Бот пришлёт фото в чат с мастером — работает на любом устройстве, ведь
   // WebView Telegram не умеет скачивать. После отправки сами открываем чат:
   // оттуда «Переслать» клиенту или сохранить фото в галерею штатным меню.
@@ -214,10 +305,10 @@ export function ResultPanel({
       : "Фото уже в чате с ботом — открыли его для вас. Откройте фото на весь экран → меню (три точки) → «Сохранить в галерею».";
 
   // «Сохранить в галерею»: гарантированный путь к фото в галерее телефона.
-  // В WebView Telegram ни скачивание, ни долгое нажатие не работают — зато
-  // бот кладёт фото в чат, а Telegram нативно сохраняет фото из чата в
-  // галерею на любом телефоне. Студия сама открывает чат — остаётся
-  // нажать на фото и выбрать «Сохранить в галерею».
+  // В WebView Telegram ни скачивание, ни долгое нажатие не работают —
+  // поэтому (v40) открываем фото по ссылке /f/<id> в НАСТОЯЩЕМ браузере
+  // (Telegram.WebApp.openLink): там «Сохранить» работает всегда. Запасной
+  // путь — бот кладёт фото в чат, Telegram сохраняет из чата нативно.
   const handleSaveGallery = async (fromSheet = false) => {
     if (!result || saving || sending) return;
     if (fromSheet) setSheetOpen(false);
@@ -226,6 +317,21 @@ export function ResultPanel({
       setSending(true);
       setSaveHint(null);
       try {
+        // Самый надёжный путь (v40): настоящий браузер, не WebView Telegram.
+        // Создаём ссылку на фото и открываем страницу /f/<id> снаружи — там
+        // «Сохранить фото» и долгое нажатие работают на любом телефоне.
+        const url = await ensureLinkUrl();
+        if (url) {
+          openExternal(url);
+          setSaveHint(
+            isIosDevice()
+              ? "Открыли фото в браузере: нажмите «Сохранить фото» — или удерживайте палец на фото → «Добавить в Фото». Этой же ссылкой можно отправить фото клиенту."
+              : "Открыли фото в браузере: нажмите «Сохранить фото» — оно окажется в галерее. Этой же ссылкой можно отправить фото клиенту."
+          );
+          setTimeout(() => setSaveHint(null), 25_000);
+          return;
+        }
+        // Ссылку создать не вышло (причина уже показана) — запасной путь: бот
         const data = await sendViaBot();
         if (!data.ok) {
           setSaveHint(
@@ -345,6 +451,17 @@ export function ResultPanel({
           <Button
             variant="outline"
             className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+            onClick={() => void handleMakeLink()}
+            disabled={saving || sending || linkBusy}
+            aria-label="Получить ссылку на фото для клиента"
+            data-testid="make-link"
+          >
+            <Link2 className="h-4 w-4" />
+            {linkBusy ? "Готовим ссылку…" : linkUrl ? "Ссылка готова" : "Получить ссылку"}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
             onClick={() => void handleSaveGallery(false)}
             disabled={saving || sending}
             aria-label="Сохранить образ в галерею устройства"
@@ -362,6 +479,40 @@ export function ResultPanel({
             Новый образ
           </Button>
         </div>
+        {linkUrl && (
+          <div
+            className="w-full max-w-md rounded-xl border border-[#C9EED8]/30 bg-[#043E21]/70 p-3"
+            data-testid="link-panel"
+          >
+            <p className="text-xs font-medium text-[#F8F1E1]/85">
+              Ссылка на фото (действует 7 дней):
+            </p>
+            <p className="mt-1 break-all text-[11px] leading-relaxed text-[#CFEEDB]">
+              {linkUrl}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                className="glam-btn h-8"
+                onClick={() => void handleCopyLink()}
+                data-testid="link-copy"
+              >
+                <Copy className="h-3.5 w-3.5" aria-hidden />
+                Скопировать
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                onClick={() => openExternal(linkUrl)}
+                data-testid="link-open"
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                Открыть в браузере
+              </Button>
+            </div>
+          </div>
+        )}
         {saveHint && (
           <p className="max-w-md text-center text-xs leading-relaxed text-[#F8F1E1]/75">
             {saveHint}
@@ -398,15 +549,22 @@ export function ResultPanel({
       )}
 
       {/* Лист передачи фото — для сред без системного меню (WebView Telegram):
-          бот → переслать клиенту, сохранить → вложить скрепкой, чаты WhatsApp/MAX/почта */}
+          ссылка → бот → переслать клиенту, сохранить → вложить скрепкой,
+          чаты WhatsApp/MAX/почта (с ссылкой в тексте сообщения) */}
       <TransferSheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         sending={sending}
         maxLink={maxLink}
+        linkUrl={linkUrl}
+        linkBusy={linkBusy}
         telegramMode={isTelegramWebView()}
         onBotSend={() => void handleSendToTg()}
         onSaveDevice={() => void handleSaveGallery(true)}
+        onCreateLink={() => {
+          setSheetOpen(false);
+          void handleMakeLink();
+        }}
       />
 
       {/* Фото крупно внутри студии: долгое нажатие на картинку даёт родное меню
@@ -421,6 +579,16 @@ export function ResultPanel({
           aria-label="Образ крупным планом"
           data-testid="lightbox"
         >
+          {/* Крупный явный выход: чёрный экран больше не «ловушка» */}
+          <button
+            type="button"
+            aria-label="Закрыть просмотр"
+            className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white"
+            onClick={() => setLightbox(false)}
+            data-testid="lightbox-close"
+          >
+            <X className="h-6 w-6" aria-hidden />
+          </button>
           <img
             src={result}
             alt="Образ GlamAI Studio крупным планом"
@@ -430,8 +598,9 @@ export function ResultPanel({
             data-testid="lightbox-image"
           />
           <p className="mt-4 max-w-md text-center text-sm leading-relaxed text-[#F8F1E1]/85">
-            Удерживайте палец на фото → «Сохранить в галерею» или «Поделиться» —
-            в меню телефона есть Telegram, MAX и WhatsApp.
+            Запасной просмотр: удерживайте палец на фото → «Сохранить»
+            (срабатывает не везде). Надёжнее всего — «Получить ссылку»:
+            фото откроется в браузере с кнопкой «Сохранить фото».
           </p>
           <Button
             variant="outline"

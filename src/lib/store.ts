@@ -7,6 +7,7 @@
 // Схема создаётся автоматически при первом обращении (ensureSchema) — никаких
 // миграций при деплое: залил код, задал DATABASE_URL, и всё работает.
 
+import { randomBytes } from "node:crypto";
 import postgres from "postgres";
 import { checkAllowance, currentYm, type UserPlanState } from "@/lib/plan";
 
@@ -88,6 +89,18 @@ export function ensureSchema(): Promise<void> {
       await sql`
         CREATE INDEX IF NOT EXISTS glam_pay_requests_pending_idx
         ON glam_pay_requests (status, created_at)`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS glam_photo_links (
+          id         TEXT PRIMARY KEY,
+          mime       TEXT NOT NULL,
+          data       TEXT NOT NULL,
+          created_by BIGINT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )`;
+      await sql`
+        CREATE INDEX IF NOT EXISTS glam_photo_links_expires_idx
+        ON glam_photo_links (expires_at)`;
     })().catch((err) => {
       schemaReady = null; // следующая попытка повторит создание
       throw err;
@@ -380,4 +393,77 @@ export async function setPayRequestStatus(
     WHERE id = ${id} AND status = 'pending'
     RETURNING id`;
   return rows.length > 0;
+}
+
+// ---------- Фото по ссылке (v40) ----------
+//
+// Готовый образ хранится на сервере (Neon) и выдаётся по неугадываемой
+// ссылке /f/<id>: ссылку можно отправить клиенту в ЛЮБОМ мессенджере
+// (WhatsApp, MAX, почта, SMS), а страница фото в настоящем браузере
+// сохраняется в галерею штатными средствами телефона. Фото автоматически
+// стирается через PHOTO_LINK_TTL_DAYS дней — база не растёт, ссылка
+// не живёт вечно, личные фотографии не копятся на сервере.
+
+export const PHOTO_LINK_TTL_DAYS = 7;
+
+export interface PhotoLinkRow {
+  id: string;
+  mime: string;
+  /** base64 без префикса data: */
+  data: string;
+  expiresAt: Date;
+}
+
+/** 18 символов base62 без похожих символов (0/O, 1/l/I) — неугадываемо. */
+function newPhotoLinkId(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = randomBytes(18);
+  let id = "";
+  for (const b of bytes) id += alphabet[b % alphabet.length];
+  return id;
+}
+
+function parseDataUrl(dataUrl: string): { mime: string; data: string } | null {
+  const m = /^data:(image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  return m ? { mime: m[1], data: m[2] } : null;
+}
+
+/** Сохраняет образ и создаёт ссылку /f/<id>. Просроченные фото подчищаем
+ *  здесь же — отдельный cron не нужен: чистка идёт при каждой новой ссылке. */
+export async function createPhotoLink(
+  dataUrl: string,
+  createdBy: number
+): Promise<{ id: string; expiresAt: Date }> {
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) throw new Error("Картинка не передана или неверного формата.");
+  const sql = getSql();
+  await ensureSchema();
+  await sql`DELETE FROM glam_photo_links WHERE expires_at < now()`;
+  const id = newPhotoLinkId();
+  const rows = await sql`
+    INSERT INTO glam_photo_links (id, mime, data, created_by, expires_at)
+    VALUES (${id}, ${parsed.mime}, ${parsed.data}, ${createdBy},
+            now() + ${PHOTO_LINK_TTL_DAYS} * interval '1 day')
+    RETURNING expires_at`;
+  return { id, expiresAt: new Date(rows[0].expires_at as string) };
+}
+
+/** Отдаёт фото по ссылке, пока не истёк срок. Вне срока или не найдено — null. */
+export async function getPhotoLink(id: string): Promise<PhotoLinkRow | null> {
+  if (!/^[A-Za-z0-9]{10,40}$/.test(id)) return null;
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT id, mime, data, expires_at
+    FROM glam_photo_links
+    WHERE id = ${id} AND expires_at > now()
+    LIMIT 1`;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    mime: String(r.mime),
+    data: String(r.data),
+    expiresAt: new Date(r.expires_at as string),
+  };
 }
