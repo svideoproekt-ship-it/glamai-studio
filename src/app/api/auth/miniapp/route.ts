@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, SESSION_TTL_SEC, signSession, verifyMiniAppInitData } from "@/lib/auth";
-import { upsertUser } from "@/lib/store";
+import { attachStudioBySlug, upsertUser } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -27,9 +27,14 @@ export async function POST(req: NextRequest) {
   }
 
   let initData = "";
+  let startParam = "";
   try {
-    const body = (await req.json()) as { initData?: unknown };
+    const body = (await req.json()) as { initData?: unknown; startParam?: unknown };
     if (typeof body?.initData === "string") initData = body.initData;
+    // start_param — метка источника (v41): клиентка открыла бота по ссылке
+    // студии t.me/<bot>?start=studio_<slug>. Не подписана криптографически,
+    // поэтому принимаем только строгий формат и привязываем один раз.
+    if (typeof body?.startParam === "string") startParam = body.startParam.trim().slice(0, 64);
   } catch {
     return NextResponse.json(
       { ok: false, error: "bad_request", message: "Неверный формат запроса." },
@@ -63,6 +68,13 @@ export async function POST(req: NextRequest) {
 
   try {
     await upsertUser({ id: data.id, username: data.username, firstName: data.firstName });
+    // Атрибуция студии-источника: только первое касание, только активная студия.
+    if (/^studio_[a-z0-9][a-z0-9-]{0,39}$/.test(startParam)) {
+      const attached = await attachStudioBySlug(data.id, startParam.slice("studio_".length));
+      if (attached) {
+        console.log(`[auth/miniapp] атрибуция: ${data.id} → ${startParam}`);
+      }
+    }
   } catch (err) {
     console.error("[auth/miniapp] ошибка БД:", err instanceof Error ? err.message : err);
     return NextResponse.json(

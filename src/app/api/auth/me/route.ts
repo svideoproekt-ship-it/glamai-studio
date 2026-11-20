@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getPayInfo } from "@/lib/pay";
-import { getUser, rowAllowance } from "@/lib/store";
+import { getStudioForUser, getUser, rowAllowance } from "@/lib/store";
 import { APP_VERSION } from "@/lib/version";
 
 export const runtime = "nodejs";
@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ authed: false, botUsername, ownerTg, pay, version: APP_VERSION });
     }
     const allowance = rowAllowance(user);
+    // Студия-партнёр, которая привела пользователя: имя и ссылка записи
+    // для кнопки «Записаться» (экран лимита и paywall) — v41.
+    const studio = await getStudioForUser(tid);
     return NextResponse.json({
       authed: true,
       botUsername,
@@ -44,6 +47,15 @@ export async function GET(req: NextRequest) {
         mode: allowance.mode,
         remaining: allowance.remaining,
         total: allowance.total,
+        bonus: allowance.bonus ?? 0,
+        studio: studio
+          ? {
+              slug: studio.slug,
+              name: studio.name,
+              bookingUrl: studio.bookingUrl,
+              note: studio.note,
+            }
+          : null,
       },
     });
   } catch (err) {

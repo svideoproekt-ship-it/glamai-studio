@@ -22,8 +22,20 @@ interface AdminUser {
   monthlyUsed: number;
   monthlyResetYm: string | null;
   subscriptionUntil: string | null;
+  studioSlug: string | null;
+  studioName: string | null;
+  bonusGenerations: number;
   lastSeenAt: string;
   generationsTotal: number;
+}
+
+interface StudioRow {
+  slug: string;
+  name: string;
+  bookingUrl: string | null;
+  note: string | null;
+  active: boolean;
+  invited: number;
 }
 
 interface Stats {
@@ -80,10 +92,18 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pay, setPay] = useState<PayInfo | null>(null);
   const [requests, setRequests] = useState<PayRequest[]>([]);
+  const [studios, setStudios] = useState<StudioRow[]>([]);
+  const [botUsername, setBotUsername] = useState("");
   const [qrData, setQrData] = useState<string | null>(null);
   const [grantUser, setGrantUser] = useState("");
   const [grantPlan, setGrantPlan] = useState<"start" | "salon">("start");
   const [grantDays, setGrantDays] = useState("30");
+  // Форма студии-партнёра (v41)
+  const [studioName, setStudioName] = useState("");
+  const [studioSlug, setStudioSlug] = useState("");
+  const [studioUrl, setStudioUrl] = useState("");
+  const [studioNote, setStudioNote] = useState("");
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   const loadList = useCallback(async () => {
     setError(null);
@@ -99,6 +119,8 @@ export default function AdminPage() {
       setStats(data.stats ?? null);
       setPay(data.pay ?? null);
       setRequests(data.requests ?? []);
+      setStudios(data.studios ?? []);
+      setBotUsername(data.botUsername ?? "");
       setAuthed(true);
     } catch (e) {
       setAuthed(false);
@@ -157,7 +179,7 @@ export default function AdminPage() {
 
   const act = async (
     body: Record<string, unknown>,
-    okMsg: string | ((data: { untilIso?: string | null }) => string)
+    okMsg: string | ((data: { untilIso?: string | null; studio?: { name?: string }; bonusTotal?: number }) => string)
   ) => {
     setBusy(true);
     setError(null);
@@ -382,6 +404,21 @@ export default function AdminPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="border-[#F6B93B]/50 text-[#F8DFA8] hover:bg-white/10"
+                  disabled={busy || !grantUser.trim()}
+                  onClick={() =>
+                    void act(
+                      { action: "grant_bonus", user: grantUser, amount: 5 },
+                      (d) => `Бонусные +5 генераций выданы (итого бонусных: ${d.bonusTotal ?? ""})`
+                    )
+                  }
+                  data-testid="grant-bonus"
+                >
+                  Выдать +5 генераций
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="border-red-300/40 text-red-200 hover:bg-red-500/15"
                   disabled={busy || !grantUser.trim()}
                   onClick={() =>
@@ -399,6 +436,149 @@ export default function AdminPage() {
                   (тем же полем выше — @username или ID)
                 </span>
               </div>
+            </section>
+
+            {/* Студии-партнёры (v41): баннер на сайте студии ведёт в бота со
+                ссылкой-меткой ?start=studio_<slug> — источник запоминается. */}
+            <section className="green-card mb-5 rounded-3xl p-5" data-testid="studios">
+              <h2 className="mb-1 font-serif text-lg font-bold">Студии-партнёры</h2>
+              <p className="mb-3 text-sm text-[#F8F1E1]/75">
+                Добавь студию — получишь ссылку-метку для кнопки на её сайте.
+                Клиентка, пришедшая по такой ссылке, привязывается к студии навсегда:
+                бот показывает ей «Записаться» с контактами студии — и на экране,
+                когда пробные образы кончились. Случайные посетительницы не расходуют
+                квоту студии — они на нашем бесплатном лимите.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={studioName}
+                  onChange={(e) => setStudioName(e.target.value)}
+                  placeholder="Название студии (Роза Бьюти)"
+                  className="w-52 border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-[#6F4E37]"
+                  aria-label="Название студии"
+                />
+                <Input
+                  value={studioSlug}
+                  onChange={(e) => setStudioSlug(e.target.value)}
+                  placeholder="слаг: roza-beauty"
+                  className="w-44 border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-[#6F4E37]"
+                  aria-label="Слаг студии"
+                />
+                <Input
+                  value={studioUrl}
+                  onChange={(e) => setStudioUrl(e.target.value)}
+                  placeholder="ссылка записи: https://… (необязательно)"
+                  className="w-64 border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-[#6F4E37]"
+                  aria-label="Ссылка для записи"
+                />
+                <Button
+                  className="glam-btn shrink-0"
+                  disabled={busy || !studioName.trim() || !studioSlug.trim()}
+                  onClick={() =>
+                    void act(
+                      {
+                        action: "studio_create",
+                        name: studioName,
+                        slug: studioSlug,
+                        bookingUrl: studioUrl,
+                        note: studioNote,
+                      },
+                      (d) => {
+                        setStudioNote("");
+                        return `Студия «${d.studio?.name ?? studioName}» сохранена — ссылка-метка ниже`;
+                      }
+                    )
+                  }
+                  data-testid="studio-create"
+                >
+                  Сохранить студию
+                </Button>
+              </div>
+              <Input
+                value={studioNote}
+                onChange={(e) => setStudioNote(e.target.value)}
+                placeholder="Заметка для клиентки (если нет ссылки записи): «Запись по телефону +7…»"
+                className="mt-2 border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-[#6F4E37]"
+                aria-label="Заметка студии"
+              />
+
+              {studios.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {studios.map((s) => {
+                    const link = botUsername
+                      ? `https://t.me/${botUsername.replace(/^@/, "")}?start=studio_${s.slug}`
+                      : "";
+                    return (
+                      <div
+                        key={s.slug}
+                        className="rounded-xl border border-[#F8F1E1]/15 bg-[#06301B]/70 p-3"
+                        data-testid={`studio-row-${s.slug}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">{s.name}</p>
+                          <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs">
+                            @{s.slug}
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              s.active
+                                ? "bg-[#008B8B]/80 text-white"
+                                : "bg-white/15 text-[#F8F1E1]/70"
+                            }`}
+                          >
+                            {s.active ? "активна" : "выключена"}
+                          </span>
+                          <span className="text-xs text-[#F8F1E1]/70">
+                            привязано: {s.invited}
+                          </span>
+                          <div className="ml-auto flex flex-wrap gap-2">
+                            {link && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                                onClick={() => {
+                                  void navigator.clipboard?.writeText(link).catch(() => {});
+                                  setCopiedSlug(s.slug);
+                                  setTimeout(() => setCopiedSlug(null), 2000);
+                                }}
+                                data-testid={`studio-copy-${s.slug}`}
+                              >
+                                {copiedSlug === s.slug ? "Скопировано ✓" : "Скопировать ссылку для сайта"}
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                              disabled={busy}
+                              onClick={() =>
+                                void act(
+                                  { action: "studio_toggle", slug: s.slug, active: !s.active },
+                                  s.active
+                                    ? `Студия «${s.name}» выключена — новые привязки прекращены`
+                                    : `Студия «${s.name}» снова активна`
+                                )
+                              }
+                              data-testid={`studio-toggle-${s.slug}`}
+                            >
+                              {s.active ? "Выключить" : "Включить"}
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="mt-1.5 break-all text-xs text-[#CFEEDB]">
+                          {link || "Задай TELEGRAM_BOT_USERNAME на Vercel — и ссылка появится"}
+                        </p>
+                        {s.bookingUrl && (
+                          <p className="mt-0.5 text-xs text-[#F8F1E1]/60">
+                            Запись: {s.bookingUrl}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {/* Заявки на подписку: клиент нажал «Выбрать тариф» — ID уже здесь */}
@@ -519,13 +699,14 @@ export default function AdminPage() {
                       <th className="px-3 py-3">Месяц</th>
                       <th className="px-3 py-3">Подписка до</th>
                       <th className="px-3 py-3">Генераций</th>
+                      <th className="px-3 py-3">Студия</th>
                       <th className="px-3 py-3">Был(а)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-[#F8F1E1]/60">
+                        <td colSpan={8} className="px-4 py-6 text-center text-[#F8F1E1]/60">
                           Пока никто не входил
                         </td>
                       </tr>
@@ -553,13 +734,26 @@ export default function AdminPage() {
                               {badge.text}
                             </span>
                           </td>
-                          <td className="px-3 py-3">{u.trialUsed} / 5</td>
+                          <td className="px-3 py-3">
+                            {u.trialUsed} / {5 + (u.bonusGenerations ?? 0)}
+                            {(u.bonusGenerations ?? 0) > 0 && (
+                              <span
+                                className="ml-1 rounded-full bg-[#F6B93B]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#F8DFA8]"
+                                title="Бонусные генерации (добор)"
+                              >
+                                +{u.bonusGenerations}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-3">
                             {u.monthlyUsed}
                             {u.monthlyResetYm ? ` · ${u.monthlyResetYm}` : ""}
                           </td>
                           <td className="px-3 py-3">{fmtDate(u.subscriptionUntil)}</td>
                           <td className="px-3 py-3">{u.generationsTotal}</td>
+                          <td className="px-3 py-3 text-xs text-[#F8F1E1]/80">
+                            {u.studioName ? u.studioName : <span className="text-[#F8F1E1]/40">—</span>}
+                          </td>
                           <td className="px-3 py-3 text-xs text-[#F8F1E1]/70">
                             {fmtDate(u.lastSeenAt)}
                           </td>

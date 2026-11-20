@@ -408,6 +408,36 @@ function Studio() {
 
       {/* Рабочая область */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+        {/* v41: студия-источник — приветствие и быстрый доступ к записи */}
+        {profile?.studio && (
+          <div
+            className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-2xl border border-[#F6B93B]/45 bg-[#06301B]/60 px-4 py-3 text-sm text-[#F8F1E1]"
+            data-testid="studio-strip"
+          >
+            <Sparkles className="h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
+            <p className="min-w-0 flex-1">
+              Вас пригласила студия <b>«{profile.studio.name}»</b> — образы можно примерить прямо
+              здесь, а запись сделать у её мастеров.
+            </p>
+            {profile.studio.bookingUrl && (
+              <a
+                href={profile.studio.bookingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0"
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 border-[#F6B93B]/50 text-[#F8F1E1] hover:bg-white/10"
+                  data-testid="studio-book-strip"
+                >
+                  Записаться
+                </Button>
+              </a>
+            )}
+          </div>
+        )}
         {/* Остаток бесплатных генераций — крупно, видно на любом экране */}
         {profile && !profile.subscriptionActive && (
           <div
@@ -421,11 +451,33 @@ function Studio() {
                 ? " — без карты. Дальше — подписка от 690 ₽/мес."
                 : " — пробные образы закончились."}
             </p>
+            {profile.remaining === 0 && profile.studio?.bookingUrl && (
+              <a
+                href={profile.studio.bookingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0"
+              >
+                <Button
+                  size="sm"
+                  className="glam-btn shrink-0 font-bold"
+                  data-testid="studio-book-banner"
+                >
+                  <Sparkles className="h-4 w-4" aria-hidden />
+                  Записаться в «{profile.studio.name}»
+                </Button>
+              </a>
+            )}
             {profile.remaining === 0 && (
               <Button
                 size="sm"
+                variant={profile.studio?.bookingUrl ? "outline" : "default"}
                 onClick={() => openPaywall()}
-                className="glam-btn shrink-0 font-bold"
+                className={
+                  profile.studio?.bookingUrl
+                    ? "shrink-0 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+                    : "glam-btn shrink-0 font-bold"
+                }
                 data-testid="open-paywall"
               >
                 <Sparkles className="h-4 w-4" aria-hidden />

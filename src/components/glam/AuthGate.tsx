@@ -47,6 +47,15 @@ export interface GlamProfile {
   mode: "trial" | "sub";
   remaining: number;
   total: number;
+  /** Бонусные генерации — входят в total (v41). */
+  bonus?: number;
+  /** Студия-партнёр, которая привела пользователя (v41): для кнопки «Записаться». */
+  studio?: {
+    slug: string;
+    name: string;
+    bookingUrl: string | null;
+    note: string | null;
+  } | null;
 }
 
 interface MeResponse {
@@ -79,6 +88,9 @@ interface TgWebApp {
   expand?: () => void;
   /** Открыть t.me-ссылку силами самого Telegram (без перехвата Unigram и пр.) */
   openTelegramLink?: (url: string) => void;
+  /** Разобранные (НЕ подписанные) данные приложения: здесь живёт start_param —
+   *  метка источника студии t.me/<bot>?start=studio_<slug> (v41). */
+  initDataUnsafe?: { start_param?: string } | null;
   /** «android»/«ios» — телефон, «tdesktop»/«macos»/«web» — компьютер */
   platform?: string;
   /** Покрасить шапку и фон Telegram в цвет студии: без этого сверху и снизу
@@ -223,11 +235,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       const initData = tg.initData ?? "";
       if (!initData) return;
       decorateTelegram(tg);
+      // Метка источника: ссылка студии t.me/<bot>?start=studio_<slug> оставляет
+      // start_param в initDataUnsafe — передаём на сервер для атрибуции (v41).
+      const startParam = (tg.initDataUnsafe?.start_param ?? "").slice(0, 64);
       try {
         const res = await fetch("/api/auth/miniapp", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData }),
+          body: JSON.stringify({ initData, startParam }),
         });
         if (res.ok) {
           await refresh();
@@ -681,6 +696,40 @@ function PaywallDialog({
               "Выберите тариф, переведите оплату по реквизитам и отправьте чек в чат — включу подписку."}
           </DialogDescription>
         </DialogHeader>
+
+        {/* v41: студия-источник — на самом горячем моменте ведём к записи,
+            а не к оплате: клиентке подписка не нужна, нужен мастер. */}
+        {profile?.studio && (
+          <div
+            className="mt-1 rounded-2xl border border-[#8CE99A]/55 bg-[#06301B]/85 p-4"
+            data-testid="studio-booking"
+          >
+            <p className="text-sm font-bold text-[#F8F1E1]">
+              Образ выбран — запишитесь в «{profile.studio.name}»
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-[#F8F1E1]/75">
+              Пробные образы были бесплатны — за счёт GlamAI Studio. Дальше — визажист студии:
+              он воплотит выбранный образ.
+            </p>
+            {profile.studio.bookingUrl ? (
+              <a
+                href={profile.studio.bookingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 block"
+              >
+                <Button className="glam-btn h-11 w-full text-sm font-bold" data-testid="studio-book">
+                  <Sparkles className="h-4 w-4" aria-hidden />
+                  Записаться в «{profile.studio.name}»
+                </Button>
+              </a>
+            ) : profile.studio.note ? (
+              <p className="mt-2 rounded-xl bg-white/10 p-2.5 text-xs text-[#F8F1E1]/90">
+                {profile.studio.note}
+              </p>
+            ) : null}
+          </div>
+        )}
 
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           {PLANS.map((p) => (

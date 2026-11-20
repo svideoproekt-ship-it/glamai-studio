@@ -21,7 +21,7 @@ import {
   saveImageFile,
   shareImage,
 } from "@/lib/download";
-import { openTelegramChat } from "./AuthGate";
+import { openTelegramChat, useAuth } from "./AuthGate";
 import { TransferSheet } from "./TransferSheet";
 import {
   Collapsible,
@@ -40,6 +40,37 @@ const STATUSES = [
 ];
 
 const DOT_COLORS = ["#008B8B", "#16B8A6", "#F6B93B"];
+
+/** v41: карточка записи в студию-источник под готовым образом.
+ *  Образ уже выбран — это самый горячий момент для записи к мастеру. */
+function StudioBookingCard() {
+  const { profile } = useAuth();
+  const studio = profile?.studio;
+  if (!studio) return null;
+  return (
+    <div
+      className="rounded-2xl border border-[#F6B93B]/45 bg-[#06301B]/70 p-4"
+      data-testid="studio-booking-result"
+    >
+      <p className="text-sm font-bold text-[#F8F1E1]">
+        Образ выбран — запишитесь в «{studio.name}»
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-[#F8F1E1]/75">
+        Визажист студии воплотит этот образ. Первые 5 примерок — за счёт GlamAI Studio.
+      </p>
+      {studio.bookingUrl && (
+        <Button
+          className="glam-btn mt-3 h-10 w-full text-sm font-bold"
+          onClick={() => void openExternal(studio.bookingUrl as string)}
+          data-testid="studio-book-result"
+        >
+          <ExternalLink className="h-4 w-4" aria-hidden />
+          Записаться в «{studio.name}»
+        </Button>
+      )}
+    </div>
+  );
+}
 
 interface ResultPanelProps {
   loading: boolean;
@@ -420,6 +451,9 @@ export function ResultPanel({
 
   return (
     <div key={result} className="reveal space-y-4">
+      {/* v41: студия-источник — сразу под готовым образом: образ выбран,
+          момент максимальной готовности к записи */}
+      <StudioBookingCard />
       {portraitMode && (
         <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-left">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />

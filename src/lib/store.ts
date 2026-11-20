@@ -20,6 +20,10 @@ export interface UserRow {
   monthlyUsed: number;
   monthlyResetYm: string | null;
   subscriptionUntil: Date | null;
+  /** Студия-партнёр, которая привела пользователя (v41, ставится один раз при входе). */
+  studioSlug: string | null;
+  /** Бонусные бесплатные генерации (добор «+5» — v41). */
+  bonusGenerations: number;
   createdAt: Date;
   lastSeenAt: Date;
 }
@@ -101,6 +105,19 @@ export function ensureSchema(): Promise<void> {
       await sql`
         CREATE INDEX IF NOT EXISTS glam_photo_links_expires_idx
         ON glam_photo_links (expires_at)`;
+      // ---------- v41: студии-партнёры + атрибуция + бонусные генерации ----------
+      await sql`
+        CREATE TABLE IF NOT EXISTS glam_studios (
+          slug        TEXT PRIMARY KEY,
+          name        TEXT NOT NULL,
+          booking_url TEXT,
+          note        TEXT,
+          active      BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`;
+      await sql`ALTER TABLE glam_users ADD COLUMN IF NOT EXISTS studio_slug TEXT`;
+      await sql`ALTER TABLE glam_users ADD COLUMN IF NOT EXISTS bonus_generations INTEGER NOT NULL DEFAULT 0`;
+      await sql`CREATE INDEX IF NOT EXISTS glam_users_studio_idx ON glam_users (studio_slug)`;
     })().catch((err) => {
       schemaReady = null; // следующая попытка повторит создание
       throw err;
@@ -111,12 +128,13 @@ export function ensureSchema(): Promise<void> {
 
 // Приводит к UserPlanState любую из внутренних форм записи пользователя.
 // Числа прогоняем через Number(): BIGINT у postgres.js приходит строкой.
-function toState(r: {
+export function toState(r: {
   plan: string;
   trialUsed?: number;
   monthlyUsed?: number;
   monthlyResetYm?: string | null;
   subscriptionUntil?: Date | string | null;
+  bonusGenerations?: number;
 }): UserPlanState {
   return {
     plan: r.plan,
@@ -129,6 +147,7 @@ function toState(r: {
         : r.subscriptionUntil
           ? new Date(r.subscriptionUntil)
           : null,
+    bonusGenerations: Number(r.bonusGenerations ?? 0),
   };
 }
 
@@ -142,6 +161,8 @@ function toRow(r: Record<string, unknown>): UserRow {
     monthlyUsed: Number(r.monthly_used),
     monthlyResetYm: (r.monthly_reset_ym as string | null) ?? null,
     subscriptionUntil: (r.subscription_until as Date | null) ?? null,
+    studioSlug: (r.studio_slug as string | null) ?? null,
+    bonusGenerations: Number(r.bonus_generations ?? 0),
     createdAt: r.created_at as Date,
     lastSeenAt: r.last_seen_at as Date,
   };
@@ -170,13 +191,21 @@ export async function getUser(telegramId: number): Promise<UserRow | null> {
   await ensureSchema();
   const rows = await sql`
     SELECT telegram_id, username, first_name, plan, trial_used,
-           monthly_used, monthly_reset_ym, subscription_until, created_at, last_seen_at
+           monthly_used, monthly_reset_ym, subscription_until,
+           studio_slug, bonus_generations, created_at, last_seen_at
     FROM glam_users WHERE telegram_id = ${telegramId} LIMIT 1`;
   return rows[0] ? toRow(rows[0]) : null;
 }
 
 export function rowAllowance(row: UserRow) {
-  return checkAllowance(toState(row));
+  return checkAllowance({
+    plan: row.plan,
+    trialUsed: row.trialUsed,
+    monthlyUsed: row.monthlyUsed,
+    monthlyResetYm: row.monthlyResetYm,
+    subscriptionUntil: row.subscriptionUntil,
+    bonusGenerations: row.bonusGenerations,
+  });
 }
 
 /**
@@ -218,21 +247,31 @@ export async function consumeGeneration(telegramId: number, kind: string): Promi
 
 // ---------- Админ-операции (ручные продажи) ----------
 
-export type AdminUserRow = UserRow & { generationsTotal: number };
+export type AdminUserRow = UserRow & {
+  generationsTotal: number;
+  /** Название студии-партнёра (или null, если пользователь пришёл сам). */
+  studioName: string | null;
+};
 
-/** Список последних пользователей с числом генераций. */
+/** Список последних пользователей с числом генераций и студией-источником. */
 export async function listUsers(limit = 100): Promise<AdminUserRow[]> {
   const sql = getSql();
   await ensureSchema();
   const rows = await sql`
     SELECT u.telegram_id, u.username, u.first_name, u.plan, u.trial_used,
            u.monthly_used, u.monthly_reset_ym, u.subscription_until,
-           u.created_at, u.last_seen_at,
+           u.studio_slug, u.bonus_generations,
+           u.created_at, u.last_seen_at, st.name AS studio_name,
            (SELECT COUNT(*) FROM glam_generations g WHERE g.telegram_id = u.telegram_id)::int AS generations_total
     FROM glam_users u
+    LEFT JOIN glam_studios st ON st.slug = u.studio_slug
     ORDER BY u.last_seen_at DESC
     LIMIT ${Math.min(500, Math.max(1, limit))}`;
-  return rows.map((r) => ({ ...toRow(r), generationsTotal: Number(r.generations_total) }));
+  return rows.map((r) => ({
+    ...toRow(r),
+    generationsTotal: Number(r.generations_total),
+    studioName: (r.studio_name as string | null) ?? null,
+  }));
 }
 
 /** "123456789" | "@username" | "username" → telegram id либо null.
@@ -311,6 +350,25 @@ export async function resetTrial(user: string): Promise<number | null> {
   await ensureSchema();
   const rows = await sql`UPDATE glam_users SET trial_used = 0 WHERE telegram_id = ${id} RETURNING telegram_id`;
   return rows[0] ? Number(rows[0].telegram_id) : null;
+}
+
+/** Выдаёт бонусные бесплатные генерации (добор «+5»): поднимает потолок триала.
+ *  Не трогает trial_used — клиент просто получает дополнительные попытки. */
+export async function grantBonus(
+  user: string,
+  amount: number
+): Promise<{ id: number; bonusTotal: number } | null> {
+  const id = await resolveUser(user);
+  if (id === null) return null;
+  const safeAmount = Math.min(50, Math.max(1, Math.floor(amount) || 5));
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    UPDATE glam_users SET bonus_generations = LEAST(1000, bonus_generations + ${safeAmount})
+    WHERE telegram_id = ${id}
+    RETURNING bonus_generations`;
+  if (rows.length === 0) return null;
+  return { id, bonusTotal: Number(rows[0].bonus_generations) };
 }
 
 /** Статистика для админки. */
@@ -466,4 +524,141 @@ export async function getPhotoLink(id: string): Promise<PhotoLinkRow | null> {
     data: String(r.data),
     expiresAt: new Date(r.expires_at as string),
   };
+}
+
+// ---------- Студии-партнёры (v41) ----------
+//
+// Студия получает ссылку вида https://t.me/<bot>?start=studio_<slug> — она
+// стоит на кнопке баннера на сайте студии. Клиентка, открывшая бота по этой
+// ссылке, попадает в Mini App с start_param=studio_<slug>: мы запоминаем
+// источник (первое касание, не перезаписывается) и показываем клиентке
+// кнопку «Записаться» с контактами именно этой студии — в том числе на
+// экране «пробные образы закончились».
+
+export interface StudioRow {
+  slug: string;
+  name: string;
+  bookingUrl: string | null;
+  note: string | null;
+  active: boolean;
+  /** Сколько пользователей пришло от студии (для админки). */
+  invited: number;
+}
+
+/** Нормализует слаг: только латиница/цифры/дефис, до 40 символов. */
+export function normalizeStudioSlug(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
+function toStudio(r: Record<string, unknown>): StudioRow {
+  return {
+    slug: String(r.slug),
+    name: String(r.name),
+    bookingUrl: (r.booking_url as string | null) ?? null,
+    note: (r.note as string | null) ?? null,
+    active: Boolean(r.active),
+    invited: Number(r.invited ?? 0),
+  };
+}
+
+/** Создаёт студию или обновляет её данные по слагу. */
+export async function upsertStudio(s: {
+  slug: string;
+  name: string;
+  bookingUrl?: string | null;
+  note?: string | null;
+}): Promise<StudioRow | null> {
+  const slug = normalizeStudioSlug(s.slug);
+  const name = s.name.trim().slice(0, 80);
+  if (!slug || !name) return null;
+  const bookingUrl =
+    s.bookingUrl && /^https?:\/\/\S{4,300}$/i.test(s.bookingUrl.trim())
+      ? s.bookingUrl.trim().slice(0, 300)
+      : null;
+  const note = s.note?.trim().slice(0, 200) || null;
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    INSERT INTO glam_studios (slug, name, booking_url, note)
+    VALUES (${slug}, ${name}, ${bookingUrl}, ${note})
+    ON CONFLICT (slug) DO UPDATE SET
+      name = EXCLUDED.name,
+      booking_url = EXCLUDED.booking_url,
+      note = EXCLUDED.note
+    RETURNING slug, name, booking_url, note, active`;
+  return rows[0] ? toStudio(rows[0]) : null;
+}
+
+/** Список студий для админки — с числом приведённых пользователей. */
+export async function listStudios(limit = 100): Promise<StudioRow[]> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT slug, name, booking_url, note, active,
+           (SELECT COUNT(*) FROM glam_users u WHERE u.studio_slug = s.slug)::int AS invited
+    FROM glam_studios s
+    ORDER BY s.created_at DESC
+    LIMIT ${Math.min(200, Math.max(1, limit))}`;
+  return rows.map(toStudio);
+}
+
+/** Включает/выключает студию: у выключенной баннерная ссылка перестаёт привязывать. */
+export async function setStudioActive(slug: string, active: boolean): Promise<boolean> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    UPDATE glam_studios SET active = ${active} WHERE slug = ${normalizeStudioSlug(slug)}
+    RETURNING slug`;
+  return rows.length > 0;
+}
+
+/** Студия по слагу (даже выключенная — для админки). */
+export async function getStudioBySlug(slug: string): Promise<StudioRow | null> {
+  const clean = normalizeStudioSlug(slug);
+  if (!clean) return null;
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT slug, name, booking_url, note, active, 0::int AS invited
+    FROM glam_studios WHERE slug = ${clean} LIMIT 1`;
+  return rows[0] ? toStudio(rows[0]) : null;
+}
+
+/**
+ * Привязывает пользователя к студии-источнику. Срабатывает только при ПЕРВОМ
+ * касании (studio_slug ещё пустой) и только если студия существует и активна:
+ * «первый показал — тот и собрал аудиторию», перебить источник нельзя.
+ */
+export async function attachStudioBySlug(telegramId: number, slug: string): Promise<boolean> {
+  const clean = normalizeStudioSlug(slug);
+  if (!clean) return false;
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    UPDATE glam_users u SET studio_slug = s.slug
+    FROM glam_studios s
+    WHERE s.slug = ${clean} AND s.active
+      AND u.telegram_id = ${telegramId} AND u.studio_slug IS NULL
+    RETURNING u.telegram_id`;
+  return rows.length > 0;
+}
+
+/** Студия, которая привела пользователя (для кнопки «Записаться»). */
+export async function getStudioForUser(telegramId: number): Promise<StudioRow | null> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT s.slug, s.name, s.booking_url, s.note, s.active,
+           (SELECT COUNT(*) FROM glam_users u2 WHERE u2.studio_slug = s.slug)::int AS invited
+    FROM glam_studios s
+    JOIN glam_users u ON u.studio_slug = s.slug
+    WHERE u.telegram_id = ${telegramId} AND s.active
+    LIMIT 1`;
+  return rows[0] ? toStudio(rows[0]) : null;
 }

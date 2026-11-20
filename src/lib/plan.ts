@@ -37,6 +37,9 @@ export interface UserPlanState {
   monthlyUsed: number;
   monthlyResetYm: string | null;
   subscriptionUntil: Date | null;
+  /** Дополнительные бесплатные генерации (v41): добор от салона/владельца,
+   *  увеличивает пробный лимит сверху — расходуется наравне с обычными. */
+  bonusGenerations?: number;
 }
 
 /** Безопасное приведение даты: принимает Date или ISO-строку, NULL → null. */
@@ -60,6 +63,8 @@ export interface Allowance {
   subscriptionActive: boolean;
   /** Почему нельзя: «trial_exhausted» | «quota_exhausted» (только при allowed=false) */
   reason?: "trial_exhausted" | "quota_exhausted";
+  /** Сколько из общего лимита — бонусные генерации (v41, только для trial) */
+  bonus?: number;
 }
 
 /**
@@ -92,14 +97,19 @@ export function checkAllowance(s: UserPlanState, now: Date = new Date()): Allowa
     };
   }
 
-  const remaining = Math.max(0, TRIAL_LIMIT - s.trialUsed);
+  // Пробный лимит + бонусные генерации (добор «+5» от салона или владельца).
+  // Расходуются из одного счётчика trial_used — бонус просто поднимает потолок.
+  const bonus = Math.max(0, Math.floor(s.bonusGenerations ?? 0));
+  const total = TRIAL_LIMIT + bonus;
+  const remaining = Math.max(0, total - s.trialUsed);
   return {
     allowed: remaining > 0,
     mode: "trial",
     remaining,
-    total: TRIAL_LIMIT,
+    total,
     planLabel: label,
     subscriptionActive: false,
+    bonus,
     reason: remaining > 0 ? undefined : "trial_exhausted",
   };
 }

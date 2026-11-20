@@ -9,12 +9,16 @@ import { ADMIN_COOKIE, signAdmin, verifyAdmin } from "@/lib/auth";
 import { getPayInfo } from "@/lib/pay";
 import {
   adminStats,
+  grantBonus,
   grantPlan,
   listPayRequests,
+  listStudios,
   listUsers,
   resetTrial,
   revokeSubscription,
   setPayRequestStatus,
+  setStudioActive,
+  upsertStudio,
 } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -36,13 +40,24 @@ export async function GET(req: NextRequest) {
     return unauthorized();
   }
   try {
-    const [users, stats, requests] = await Promise.all([
+    const [users, stats, requests, studios] = await Promise.all([
       listUsers(200),
       adminStats(),
       listPayRequests(20),
+      listStudios(100),
     ]);
-    // pay — публичные реквизиты оплаты (для QR), requests — заявки на подписку
-    return NextResponse.json({ ok: true, users, stats, pay: getPayInfo(), requests });
+    // pay — публичные реквизиты оплаты (для QR), requests — заявки на подписку,
+    // studios — студии-партнёры v41. botUsername — для сборки ссылок
+    // t.me/<bot>?start=studio_<slug> для кнопки на сайте студии.
+    return NextResponse.json({
+      ok: true,
+      users,
+      stats,
+      pay: getPayInfo(),
+      requests,
+      studios,
+      botUsername: process.env.TELEGRAM_BOT_USERNAME?.trim() ?? "",
+    });
   } catch (err) {
     console.error("[admin] ошибка БД:", err instanceof Error ? err.message : err);
     return NextResponse.json(
@@ -60,6 +75,12 @@ export async function POST(req: NextRequest) {
     plan?: string;
     days?: number;
     id?: number;
+    amount?: number;
+    name?: string;
+    slug?: string;
+    bookingUrl?: string;
+    note?: string;
+    active?: boolean;
   };
   const adminSecret = process.env.ADMIN_SECRET?.trim() ?? "";
 
@@ -106,6 +127,45 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "Пользователь не найден." }, { status: 404 });
       }
       return NextResponse.json({ ok: true, id });
+    }
+    if (body.action === "grant_bonus") {
+      // Добор «+5 генераций»: поднимает пробный потолок клиентки — для «догрева»
+      // перед записью (v41). Отдельный лимит: не более 50 за раз.
+      const result = await grantBonus(body.user ?? "", Number(body.amount) || 5);
+      if (result === null) {
+        return NextResponse.json(
+          { ok: false, error: "Пользователь не найден (нужен @username или ID из таблицы)." },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({ ok: true, id: result.id, bonusTotal: result.bonusTotal });
+    }
+    if (body.action === "studio_create") {
+      // Создание/обновление студии-партнёра: слаг нормализуется на сервере.
+      const studio = await upsertStudio({
+        slug: body.slug ?? "",
+        name: body.name ?? "",
+        bookingUrl: body.bookingUrl ?? null,
+        note: body.note ?? null,
+      });
+      if (studio === null) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Нужны название студии и слаг (латиница/цифры/дефис, хотя бы одна буква или цифра).",
+          },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({ ok: true, studio });
+    }
+    if (body.action === "studio_toggle") {
+      const done = await setStudioActive(body.slug ?? "", body.active !== false);
+      if (!done) {
+        return NextResponse.json({ ok: false, error: "Студия не найдена." }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, slug: body.slug, active: body.active !== false });
     }
     if (body.action === "request_done" || body.action === "request_dismiss") {
       const id = Number(body.id);
