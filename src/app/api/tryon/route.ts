@@ -18,7 +18,9 @@ import { visionChatAny } from "@/lib/vision";
 import { getAiProvider, providerLabel } from "@/lib/ai-provider";
 import { generateMakeupImage, sizeForGlmImage, type ImagePipeline } from "@/lib/zai-image";
 import { BRAND_OVERLAY_PNG } from "@/lib/brand-overlay";
+import { buildQrLink, buildQrPlate } from "@/lib/qr-stamp";
 import { consumeAfterSuccess, gateTryon } from "@/lib/gate";
+import { getStudioForUser } from "@/lib/store";
 
 // Vercel с Fluid compute (по умолчанию для новых проектов) даёт на Hobby план
 // до 300 c. Задаём 120 c: этого хватает на полный QA-цикл (правка + аудит +
@@ -51,7 +53,7 @@ async function toJpegDataUrl(pngBase64: string): Promise<string> {
 // мастер пересылает клиенту. Готовый PNG с запечёнными шрифтами: на Vercel
 // своих шрифтов нет, поэтому подпись не рисуется на сервере, а накладывается.
 let brandOverlay: Buffer | null = null;
-async function stampBrand(dataUrl: string): Promise<string> {
+async function stampBrand(dataUrl: string, qrLink?: string | null): Promise<string> {
   try {
     const m = /^data:image\/(jpeg|png);base64,([\s\S]*)$/.exec(dataUrl);
     if (!m) return dataUrl;
@@ -74,8 +76,33 @@ async function stampBrand(dataUrl: string): Promise<string> {
     if (!ovH) return dataUrl;
     const left = Math.round((w - ovW) / 2);
     const top = Math.max(0, Math.round(h - ovH - h * 0.035));
+
+    // v43: QR-плашка в правом нижнем углу. Если плашка наезжает на подпись
+    // (квадрат/портрет) — поднимаем её НАД подписью, а не поверх.
+    const layers: sharp.OverlayOptions[] = [{ input: ov, left, top }];
+    if (qrLink) {
+      try {
+        const platePx = Math.min(224, Math.max(140, Math.round(w * 0.19)));
+        const plate = await buildQrPlate(qrLink, platePx);
+        if (plate) {
+          const gap = Math.round(w * 0.015);
+          const qLeft = w - plate.size - Math.round(w * 0.04);
+          const sigRight = left + ovW;
+          const qTop =
+            qLeft - gap < sigRight
+              ? // пересекается с подписью — ставим над ней
+                Math.max(Math.round(h * 0.02), top - plate.size - Math.round(h * 0.02))
+              : h - plate.size - Math.round(h * 0.035);
+          layers.push({ input: plate.png, left: qLeft, top: qTop });
+        }
+      } catch (err) {
+        // QR — приглашение, а не обязанность: не получился — отдаём без него
+        console.warn("[tryon] qr stamp skipped:", err instanceof Error ? err.message : err);
+      }
+    }
+
     const out = await sharp(base)
-      .composite([{ input: ov, left, top }])
+      .composite(layers)
       .jpeg({ quality: 92, mozjpeg: true })
       .toBuffer();
     return `data:image/jpeg;base64,${out.toString("base64")}`;
@@ -470,9 +497,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // v43: ссылка для QR в подписи — бот + метка студии пользователя.
+    // Студия — та, что привела мастера при первом входе (store v41); случайные
+    // посетители ведут просто в бот, чужую атрибуцию не присваиваем.
+    let qrLink: string | null = null;
+    try {
+      const studio = gate.tid === 0 ? null : await getStudioForUser(gate.tid);
+      qrLink = buildQrLink(process.env.TELEGRAM_BOT_USERNAME, studio?.slug ?? null);
+    } catch (err) {
+      console.warn("[tryon] qr link skipped:", err instanceof Error ? err.message : err);
+      qrLink = null;
+    }
+
     // Фирменная подпись на готовом образе — ПОСЛЕ QA-цикла: аудитор сравнивает
     // фото без подписи и не помечает её как «лишний добавленный текст»
-    imageDataUrl = await stampBrand(imageDataUrl);
+    imageDataUrl = await stampBrand(imageDataUrl, qrLink);
 
     // Списываем генерацию ТОЛЬКО после успешного результата —
     // неудачные попытки лимит не расходуют
