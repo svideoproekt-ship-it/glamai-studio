@@ -24,8 +24,8 @@ export function StylePanel({ style, onChange }: StylePanelProps) {
           className={cn(
             "h-12 rounded-full border px-5 text-2xl font-semibold transition-all active:scale-95",
             style === s.id
-              ? "border-transparent bg-gradient-to-r from-[#008B8B] to-[#16B8A6] text-white shadow-md shadow-[#032916]/40"
-              : "border-[#F8F1E1]/45 bg-[#F8F1E1]/45 text-[#6F4E37]/85 hover:bg-[#F8F1E1]/70 hover:text-[#6F4E37]"
+              ? "border-transparent bg-gradient-to-r from-[#D4A437] to-[#F6B93B] text-[#043E21] shadow-md shadow-[#032916]/40"
+              : "border-[#E9DCC3] bg-[#F8F1E1] text-[#6F4E37] hover:bg-[#FFF8EA]"
           )}
         >
           {s.label}

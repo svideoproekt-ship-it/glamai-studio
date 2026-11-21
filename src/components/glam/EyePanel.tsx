@@ -22,9 +22,9 @@ const AREA_META: Record<
   EyeAreaId,
   { label: string; desc: string; accent: string; palette: ProductId; withFinish: boolean }
 > = {
-  lashes: { label: "Ресницы", desc: "стрелки и тушь", accent: "#3E8EF7", palette: "eyeliner", withFinish: false },
-  brows: { label: "Брови", desc: "форма и оттенок", accent: "#F59E0B", palette: "brows", withFinish: false },
-  lids: { label: "Веки", desc: "техника теней и оттенок", accent: "#9B6EF3", palette: "eyeshadow", withFinish: true },
+  lashes: { label: "Ресницы", desc: "стрелки и тушь", accent: "#7FA8C9", palette: "eyeliner", withFinish: false },
+  brows: { label: "Брови", desc: "форма и оттенок", accent: "#A9714B", palette: "brows", withFinish: false },
+  lids: { label: "Веки", desc: "техника теней и оттенок", accent: "#B76E79", palette: "eyeshadow", withFinish: true },
 };
 
 interface EyePanelProps {
@@ -48,7 +48,7 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
             key={id}
             className={cn(
               "pop-in rounded-xl border p-3 transition-all duration-300",
-              !state.enabled && "border-[#F8F1E1]/40 bg-[#F8F1E1]/40"
+              !state.enabled && "border-[#E9DCC3] bg-[#F8F1E1]"
             )}
             data-testid={`eye-${id}`}
             style={{

@@ -66,8 +66,8 @@ export function ShareView({
     <main className="flex min-h-screen flex-col items-center justify-center bg-[#043E21] px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-5 flex items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#8CE99A]/20">
-            <Sparkles className="h-5 w-5 text-[#8CE99A]" aria-hidden />
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F6B93B]/20">
+            <Sparkles className="h-5 w-5 text-[#F6B93B]" aria-hidden />
           </span>
           <div>
             <p className="font-serif text-lg leading-tight text-[#F8F1E1]">
@@ -102,7 +102,7 @@ export function ShareView({
           «Сохранить в галерею» / «Добавить в Фото».
         </p>
         {hint && (
-          <p className="mt-3 text-center text-sm font-medium leading-relaxed text-[#8CE99A]">
+          <p className="mt-3 text-center text-sm font-medium leading-relaxed text-[#F6B93B]">
             {hint}
           </p>
         )}
@@ -131,7 +131,7 @@ export function ShareViewExpired() {
         </p>
         <a
           href="/"
-          className="mt-4 inline-flex h-10 items-center rounded-xl bg-[#8CE99A]/20 px-4 text-sm font-medium text-[#8CE99A] hover:bg-[#8CE99A]/30"
+          className="mt-4 inline-flex h-10 items-center rounded-xl bg-[#F6B93B]/20 px-4 text-sm font-medium text-[#F6B93B] hover:bg-[#F6B93B]/30"
         >
           Открыть студию
         </a>

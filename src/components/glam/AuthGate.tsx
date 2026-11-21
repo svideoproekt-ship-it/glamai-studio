@@ -309,7 +309,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (status === "loading") {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <Loader2 className="h-7 w-7 animate-spin text-[#8CE99A]" aria-hidden />
+        <Loader2 className="h-7 w-7 animate-spin text-[#F6B93B]" aria-hidden />
         <p className="text-sm text-muted-foreground">Загружаем студию…</p>
       </div>
     );
@@ -388,7 +388,7 @@ function LoginScreen({
   let action: React.ReactNode;
   if (!botUsername) {
     action = (
-      <div className="flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50/95 p-3 text-sm text-amber-900">
+      <div className="flex items-start gap-2 rounded-xl border border-[#F6B93B]/40 bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <span>
           Вход не настроен: задайте переменные <b>TELEGRAM_BOT_USERNAME</b>,{" "}
@@ -402,16 +402,16 @@ function LoginScreen({
     action = (
       <div className="flex flex-col items-center gap-2 py-2">
         {miniError ? (
-          <div className="flex w-full items-start gap-2 rounded-xl bg-amber-50/95 p-3 text-sm text-amber-900">
+          <div className="flex w-full items-start gap-2 rounded-xl bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <span>{miniError}</span>
           </div>
         ) : (
           <>
-            <Loader2 className="h-5 w-5 animate-spin text-[#8CE99A]" aria-hidden />
+            <Loader2 className="h-5 w-5 animate-spin text-[#F6B93B]" aria-hidden />
             <p className="text-sm text-muted-foreground">Входим через Telegram…</p>
             {slowHint && (
-              <p className="mt-1 rounded-xl bg-amber-50/95 p-3 text-xs text-amber-900">
+              <p className="mt-1 rounded-xl bg-[#2E2210]/95 p-3 text-xs text-[#E3D0A6]">
                 Вход затянулся. Закрой студию и открой её через бота ещё раз
                 (кнопка «Открыть студию»), либо открой сайт в обычном браузере.
               </p>
@@ -424,7 +424,7 @@ function LoginScreen({
     // Внутренний браузер Telegram без initData: открыли ссылку, а не кнопку бота.
     // Виджет oauth здесь намеренно не показываем — он и просит подтверждений.
     action = (
-      <div className="flex items-start gap-2 rounded-xl bg-amber-50/95 p-3 text-sm text-amber-900">
+      <div className="flex items-start gap-2 rounded-xl bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <span>
           Студия открылась внутри Telegram без автоматического входа. Закрой этот экран
@@ -457,7 +457,7 @@ function LoginScreen({
       <div className="green-card pop-in w-full max-w-md rounded-3xl p-6 sm:p-8">
         <div className="mb-5 flex items-center gap-3">
           <div className="relative">
-            <div className="rounded-2xl bg-gradient-to-br from-[#008B8B] via-[#16B8A6] to-[#F6B93B] p-2 shadow-lg shadow-teal-200/50">
+            <div className="rounded-2xl bg-gradient-to-br from-[#B98A2E] via-[#D4A437] to-[#F6B93B] p-2 shadow-lg shadow-[#D4A437]/30">
               <Sparkles className="h-6 w-6 text-white" aria-hidden />
             </div>
             <Sparkles
@@ -497,7 +497,7 @@ function LoginScreen({
         </ul>
 
         {authError && (
-          <div className="mt-5 flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50/95 p-3 text-sm text-amber-900">
+          <div className="mt-5 flex items-start gap-2 rounded-xl border border-[#F6B93B]/40 bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <span>{AUTH_ERRORS[authError] ?? "Не удалось войти. Попробуйте ещё раз."}</span>
           </div>
@@ -512,7 +512,7 @@ function LoginScreen({
             </p>
           )}
           {me?.dbHint && (
-            <p className="mt-3 rounded-xl bg-amber-50/95 p-3 text-xs text-amber-900">{me.dbHint}</p>
+            <p className="mt-3 rounded-xl bg-[#2E2210]/95 p-3 text-xs text-[#E3D0A6]">{me.dbHint}</p>
           )}
         </div>
 
@@ -537,8 +537,8 @@ const PLANS: Array<{
   {
     key: "start",
     title: "Старт",
-    accent: "border-[#8CE99A]/40",
-    priceCls: "text-[#8CE99A]",
+    accent: "border-[#F8F1E1]/25",
+    priceCls: "text-[#F8F1E1]",
     perks: ["до 60 образов в месяц", "палитра + референсы", "для одного мастера"],
   },
   {
@@ -701,7 +701,7 @@ function PaywallDialog({
             а не к оплате: клиентке подписка не нужна, нужен мастер. */}
         {profile?.studio && (
           <div
-            className="mt-1 rounded-2xl border border-[#8CE99A]/55 bg-[#06301B]/85 p-4"
+            className="mt-1 rounded-2xl border border-[#F6B93B]/45 bg-[#06301B]/85 p-4"
             data-testid="studio-booking"
           >
             <p className="text-sm font-bold text-[#F8F1E1]">
@@ -891,7 +891,7 @@ function PaywallDialog({
             </div>
           )}
           {!requisitesReady && (
-            <p className="mt-2 rounded-xl bg-amber-50/95 p-2.5 text-xs text-amber-900">
+            <p className="mt-2 rounded-xl bg-[#2E2210]/95 p-2.5 text-xs text-[#E3D0A6]">
               Реквизиты не заданы на сервере. Владелец: добавьте PAYMENT_PHONE (перевод
               по СБП) и/или PAYMENT_BANK, PAYMENT_CARD_NUMBER, PAYMENT_CARD_OWNER в Vercel →
               Settings → Environment Variables и сделайте Redeploy — реквизиты появятся здесь.

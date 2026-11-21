@@ -23,7 +23,7 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
 
   return (
     <div className="mx-auto w-full max-w-md">
-      <div className="rounded-[22px] bg-[#064A28] p-1.5 shadow-[0_14px_44px_rgba(3,40,22,0.5)] ring-1 ring-[#8CE99A]/30">
+      <div className="rounded-[22px] bg-[#064A28] p-1.5 shadow-[0_14px_44px_rgba(3,40,22,0.5)] ring-1 ring-[#F6B93B]/30">
         <div
           ref={containerRef}
           role="slider"
@@ -50,7 +50,7 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
           onPointerCancel={() => {
             draggingRef.current = false;
           }}
-          className="relative w-full cursor-ew-resize touch-none select-none overflow-hidden rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8CE99A]"
+          className="relative w-full cursor-ew-resize touch-none select-none overflow-hidden rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F6B93B]"
         >
           {/* После (полностью) */}
           <img src={after} alt={alt} className="block w-full" draggable={false} />
@@ -68,7 +68,7 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
           <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-[#04281A]/85 px-2.5 py-0.5 text-[11px] font-semibold tracking-widest text-[#F8F1E1] backdrop-blur-sm">
             ДО
           </span>
-          <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-gradient-to-r from-[#008B8B] to-[#16B8A6] px-2.5 py-0.5 text-[11px] font-semibold tracking-widest text-white shadow-md">
+          <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-gradient-to-r from-[#D4A437] to-[#F6B93B] px-2.5 py-0.5 text-[11px] font-semibold tracking-widest text-[#043E21] shadow-md">
             ПОСЛЕ
           </span>
 
@@ -83,7 +83,7 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
                 aria-hidden
                 className="handle-pulse absolute inset-0 rounded-full"
               />
-              <div className="relative rounded-full border border-[#8CE99A]/60 bg-white p-1.5 text-[#008B8B] shadow-lg transition-transform">
+              <div className="relative rounded-full border border-[#F6B93B]/60 bg-white p-1.5 text-[#A67C1B] shadow-lg transition-transform">
                 <ChevronsLeftRight className="h-4 w-4" />
               </div>
             </div>

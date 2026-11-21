@@ -39,7 +39,7 @@ const STATUSES = [
   "Финальный штрих…",
 ];
 
-const DOT_COLORS = ["#008B8B", "#16B8A6", "#F6B93B"];
+const DOT_COLORS = ["#B98A2E", "#D4A437", "#F6B93B"];
 
 /** v41: карточка записи в студию-источник под готовым образом.
  *  Образ уже выбран — это самый горячий момент для записи к мастеру. */
@@ -133,17 +133,17 @@ export function ResultPanel({
         />
         <Sparkles
           aria-hidden
-          className="twinkle absolute right-8 top-10 h-3 w-3 text-[#9B6EF3]"
+          className="twinkle absolute right-8 top-10 h-3 w-3 text-[#E9C46A]"
           style={{ animationDuration: "2.9s", animationDelay: "-0.9s" }}
         />
         <Sparkles
           aria-hidden
-          className="twinkle absolute bottom-8 left-10 h-3 w-3 text-[#008B8B]"
+          className="twinkle absolute bottom-8 left-10 h-3 w-3 text-[#D4A437]"
           style={{ animationDuration: "2.5s", animationDelay: "-1.6s" }}
         />
         <Sparkles
           aria-hidden
-          className="twinkle absolute bottom-14 right-6 h-4 w-4 text-[#8CE99A]"
+          className="twinkle absolute bottom-14 right-6 h-4 w-4 text-[#F6B93B]"
           style={{ animationDuration: "3.3s", animationDelay: "-0.4s" }}
         />
 
@@ -151,7 +151,7 @@ export function ResultPanel({
         <div className="relative h-16 w-16">
           <div className="conic-loader absolute inset-0 rounded-full" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <Sparkles className="float-y h-6 w-6 text-[#008B8B]" />
+            <Sparkles className="float-y h-6 w-6 text-[#D4A437]" />
           </div>
         </div>
 
@@ -421,19 +421,19 @@ export function ResultPanel({
   if (!result) {
     return (
       <div className="green-window mx-auto flex aspect-[3/4] w-full max-w-md flex-col items-center justify-center gap-4 rounded-2xl px-6 text-center">
-        <div className="float-y rounded-full bg-gradient-to-br from-[#8CE99A]/25 via-[#16B8A6]/20 to-[#9B6EF3]/20 p-4 shadow-inner">
-          <Sparkles className="h-8 w-8 text-[#8CE99A]" />
+        <div className="float-y rounded-full bg-gradient-to-br from-[#F6B93B]/20 via-[#E9C46A]/15 to-[#D4A437]/15 p-4 shadow-inner">
+          <Sparkles className="h-8 w-8 text-[#F6B93B]" />
         </div>
         <p className="font-serif text-2xl text-[#F8F1E1]">Результат появится здесь</p>
         <ol className="space-y-2 text-sm text-muted-foreground">
           <li className="flex items-center gap-2">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#8CE99A]/25 text-xs font-bold text-[#DFF7E6]">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#D4A437]/25 text-xs font-bold text-[#F3E2B9]">
               1
             </span>
             Загрузите фото модели или клиента
           </li>
           <li className="flex items-center gap-2">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#9B6EF3]/25 text-xs font-bold text-[#D9CCFF]">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#B76E79]/25 text-xs font-bold text-[#F0D3D8]">
               2
             </span>
             Соберите образ в палитре или с референсом
@@ -455,9 +455,9 @@ export function ResultPanel({
           момент максимальной готовности к записи */}
       <StudioBookingCard />
       {portraitMode && (
-        <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-left">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-          <p className="text-[11px] leading-relaxed text-amber-800">
+        <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-[#F6B93B]/40 bg-[#2E2210]/95 p-3 text-left">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" />
+          <p className="text-[11px] leading-relaxed text-[#E3D0A6]">
             Режим портрета: тариф Z.AI на вашем сервере не поддерживает правку фотографии,
             поэтому образ создан как фотореалистичный портрет по описанию внешности с вашего
             фото. Лицо может немного отличаться от оригинала.
@@ -515,13 +515,13 @@ export function ResultPanel({
         </div>
         {linkUrl && (
           <div
-            className="w-full max-w-md rounded-xl border border-[#C9EED8]/30 bg-[#043E21]/70 p-3"
+            className="w-full max-w-md rounded-xl border border-[#F8F1E1]/15 bg-[#032B16]/80 p-3"
             data-testid="link-panel"
           >
             <p className="text-xs font-medium text-[#F8F1E1]/85">
               Ссылка на фото (действует 7 дней):
             </p>
-            <p className="mt-1 break-all text-[11px] leading-relaxed text-[#CFEEDB]">
+            <p className="mt-1 break-all text-[11px] leading-relaxed text-[#E7DFC9]">
               {linkUrl}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -561,7 +561,7 @@ export function ResultPanel({
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#C9EED8]/25 bg-[#043E21]/80 p-3 text-left text-[11px] leading-relaxed text-[#CFEEDB]">
+            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#F8F1E1]/15 bg-[#032B16]/80 p-3 text-left text-[11px] leading-relaxed text-[#E7DFC9]">
               {usedDescription}
             </pre>
           </CollapsibleContent>
@@ -575,7 +575,7 @@ export function ResultPanel({
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#C9EED8]/25 bg-[#043E21]/80 p-3 text-left text-[11px] leading-relaxed text-[#CFEEDB]">
+            <pre className="custom-scroll mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#F8F1E1]/15 bg-[#032B16]/80 p-3 text-left text-[11px] leading-relaxed text-[#E7DFC9]">
               {usedPrompt}
             </pre>
           </CollapsibleContent>

@@ -86,22 +86,22 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
           }}
           className={cn(
             "flex w-full cursor-pointer flex-col items-center gap-2.5 rounded-2xl px-4 py-8 text-center transition-all duration-200 hover:shadow-lg hover:shadow-[#032916]/50",
-            "border-2 border-dashed border-[#8CE99A]/55 bg-[#043E21]/60",
+            "border-2 border-dashed border-[#F6B93B]/45 bg-[#032B16]/70",
             dragOver &&
-              "scale-[1.02] border-[#8CE99A] bg-[#04512B]/80 shadow-xl shadow-[#032916]/60 ring-4 ring-[#8CE99A]/25"
+              "scale-[1.02] border-[#F6B93B] bg-[#06301B]/85 shadow-xl shadow-[#032916]/60 ring-4 ring-[#F6B93B]/25"
           )}
         >
           <div
             className={cn(
-              "rounded-2xl bg-gradient-to-br from-[#8CE99A]/25 via-[#16B8A6]/20 to-[#9B6EF3]/20 p-3",
+              "rounded-2xl bg-gradient-to-br from-[#F6B93B]/20 via-[#E9C46A]/15 to-[#D4A437]/15 p-3",
               !busy && "float-y",
               dragOver && !busy && "wiggle"
             )}
           >
             {busy ? (
-              <Loader2 className="h-7 w-7 animate-spin text-[#8CE99A]" />
+              <Loader2 className="h-7 w-7 animate-spin text-[#F6B93B]" />
             ) : (
-              <ImagePlus className="h-7 w-7 text-[#8CE99A]" />
+              <ImagePlus className="h-7 w-7 text-[#F6B93B]" />
             )}
           </div>
           <span className="text-base font-semibold text-[#F8F1E1]">

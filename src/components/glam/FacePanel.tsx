@@ -17,7 +17,7 @@ import { FinishChips, IntensityChips, SwatchPicker, ToolPicker } from "./Constru
 
 /** Акцентный цвет каждого продукта — у каждого своя «упаковка» (без тревожного красного) */
 const PRODUCT_ACCENTS: Record<string, string> = {
-  lips: "#8CE99A",
+  lips: "#E9899B",
   blush: "#FFB4A2",
   contour: "#C08552",
   highlighter: "#F6C445",
@@ -37,13 +37,13 @@ export function FacePanel({ face, onPatch, tools, onToggleTool }: FacePanelProps
         const def = PRODUCTS.find((p) => p.id === id);
         if (!def) return null;
         const state = face[id];
-        const accent = PRODUCT_ACCENTS[id] ?? "#008B8B";
+        const accent = PRODUCT_ACCENTS[id] ?? "#B98A2E";
         return (
           <div
             key={id}
             className={cn(
               "pop-in rounded-xl border p-3 transition-all duration-300",
-              !state.enabled && "border-[#F8F1E1]/40 bg-[#F8F1E1]/40"
+              !state.enabled && "border-[#E9DCC3] bg-[#F8F1E1]"
             )}
             data-testid={`face-${id}`}
             style={{

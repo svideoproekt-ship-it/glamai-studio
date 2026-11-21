@@ -45,19 +45,19 @@ function BackgroundDecor() {
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       <div
-        className="blob absolute -left-24 -top-24 h-[420px] w-[420px] rounded-full bg-[#B9F6CF]/30 blur-3xl"
+        className="blob absolute -left-24 -top-24 h-[420px] w-[420px] rounded-full bg-[#B9F6CF]/10 blur-3xl"
         style={{ animationDuration: "22s" }}
       />
       <div
-        className="blob absolute -right-32 top-1/4 h-[460px] w-[460px] rounded-full bg-[#9B6EF3]/15 blur-3xl"
+        className="blob absolute -right-32 top-1/4 h-[460px] w-[460px] rounded-full bg-[#E9C46A]/10 blur-3xl"
         style={{ animationDuration: "27s", animationDelay: "-7s" }}
       />
       <div
-        className="blob absolute -bottom-36 left-1/4 h-[420px] w-[420px] rounded-full bg-[#F6B93B]/16 blur-3xl"
+        className="blob absolute -bottom-36 left-1/4 h-[420px] w-[420px] rounded-full bg-[#F6B93B]/10 blur-3xl"
         style={{ animationDuration: "24s", animationDelay: "-13s" }}
       />
       <div
-        className="blob absolute bottom-1/3 right-1/3 h-[300px] w-[300px] rounded-full bg-white/12 blur-3xl"
+        className="blob absolute bottom-1/3 right-1/3 h-[300px] w-[300px] rounded-full bg-white/8 blur-3xl"
         style={{ animationDuration: "20s", animationDelay: "-4s" }}
       />
     </div>
@@ -75,7 +75,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
     <h2 className="mb-1 flex items-center gap-2 font-serif text-xl font-bold tracking-wide text-[#F8F1E1]">
       <span
         aria-hidden
-        className="inline-block h-5 w-1.5 rounded-full bg-gradient-to-b from-[#8CE99A] via-[#16B8A6] to-[#F6B93B]"
+        className="inline-block h-5 w-1.5 rounded-full bg-gradient-to-b from-[#B98A2E] via-[#D4A437] to-[#F6B93B]"
       />
       {children}
     </h2>
@@ -323,11 +323,11 @@ function Studio() {
       <BackgroundDecor />
 
       {/* Шапка */}
-      <header className="sticky top-0 z-40 bg-[#08512C]/90 backdrop-blur-md">
+      <header className="sticky top-0 z-40 bg-[#032B16]/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="rounded-2xl bg-gradient-to-br from-[#008B8B] via-[#16B8A6] to-[#F6B93B] p-2 shadow-lg shadow-teal-200/50">
+              <div className="rounded-2xl bg-gradient-to-br from-[#B98A2E] via-[#D4A437] to-[#F6B93B] p-2 shadow-lg shadow-[#D4A437]/30">
                 <Sparkles className="h-5 w-5 text-white" aria-hidden />
               </div>
               <Sparkles
@@ -337,7 +337,7 @@ function Studio() {
               />
               <Sparkles
                 aria-hidden
-                className="twinkle absolute -bottom-1.5 -left-2 h-2.5 w-2.5 text-[#9B6EF3]"
+                className="twinkle absolute -bottom-1.5 -left-2 h-2.5 w-2.5 text-[#E9C46A]"
                 style={{ animationDuration: "3s", animationDelay: "-1.2s" }}
               />
             </div>
@@ -356,7 +356,7 @@ function Studio() {
             </span>
             {profile && (
               <span
-                className="shrink-0 whitespace-nowrap rounded-full border border-[#8CE99A]/45 bg-[#008B8B]/35 px-3 py-1 text-[11px] font-semibold text-[#F8F1E1]"
+                className="shrink-0 whitespace-nowrap rounded-full border border-[#F6B93B]/45 bg-[#D4A437]/15 px-3 py-1 text-[11px] font-semibold text-[#F8F1E1]"
                 data-testid="quota-chip"
               >
                 {profile.subscriptionActive
@@ -375,21 +375,21 @@ function Studio() {
             </button>
           </div>
         </div>
-        {/* Радужная линия под шапкой */}
+        {/* Шампань-линия под шапкой */}
         <div aria-hidden className="rainbow-line h-[2px] w-full opacity-70" />
       </header>
 
       {/* Баннер диагностики: показывается, только если конфиг ИИ не настроен */}
       {configIssue && (
-        <div className="border-b border-amber-300/70 bg-amber-50/90 backdrop-blur">
+        <div className="border-b border-[#F6B93B]/40 bg-[#2E2210]/95 backdrop-blur">
           <div className="mx-auto flex w-full max-w-6xl items-start gap-3 px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
-            <div className="text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#F6B93B]" />
+            <div className="text-sm text-[#F3E2B9]">
               <p className="font-semibold">ИИ не настроен — генерация пока не сработает</p>
-              <p className="mt-1 text-amber-800">{configIssue}</p>
-              <p className="mt-1 text-amber-800">
+              <p className="mt-1 text-[#E3D0A6]">{configIssue}</p>
+              <p className="mt-1 text-[#E3D0A6]">
                 Подробная диагностика: откройте{" "}
-                <a href="/api/health" target="_blank" className="underline hover:text-amber-950">
+                <a href="/api/health" target="_blank" className="underline hover:text-[#F8F1E1]">
                   /api/health
                 </a>{" "}
                 (после исправления — /api/health?ping=1, он проверит и сам ключ).
@@ -398,7 +398,7 @@ function Studio() {
             <button
               type="button"
               onClick={() => setConfigIssue(null)}
-              className="ml-auto shrink-0 rounded-md px-2 py-1 text-xs text-amber-700 hover:text-amber-950"
+              className="ml-auto shrink-0 rounded-md px-2 py-1 text-xs text-[#D9C48F] hover:text-[#F8F1E1]"
             >
               Скрыть
             </button>
@@ -441,7 +441,7 @@ function Studio() {
         {/* Остаток бесплатных генераций — крупно, видно на любом экране */}
         {profile && !profile.subscriptionActive && (
           <div
-            className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-2xl border border-[#8CE99A]/40 bg-[#043E21]/60 px-4 py-3 text-sm text-[#F8F1E1]"
+            className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-2xl border border-[#F8F1E1]/15 bg-[#032B16]/75 px-4 py-3 text-sm text-[#F8F1E1]"
             data-testid="trial-banner"
           >
             <Sparkles className="h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
@@ -490,16 +490,16 @@ function Studio() {
           {/* Левая колонка — настройки */}
           <div>
             <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="w-full">
-              <TabsList className="grid h-14 w-full grid-cols-2 rounded-full border border-[#F8F1E1]/30 bg-[#043E21]/70 p-1.5 shadow-sm">
+              <TabsList className="grid h-14 w-full grid-cols-2 rounded-full border border-[#F8F1E1]/20 bg-[#032B16]/85 p-1.5 shadow-sm">
                 <TabsTrigger
                   value="prompt"
-                  className="rounded-full text-base font-semibold transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#008B8B] data-[state=active]:to-[#16B8A6] data-[state=active]:text-white data-[state=active]:shadow-md"
+                  className="rounded-full text-base font-semibold transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#D4A437] data-[state=active]:to-[#F6B93B] data-[state=active]:text-[#043E21] data-[state=active]:shadow-md"
                 >
                   Промпт и палитра
                 </TabsTrigger>
                 <TabsTrigger
                   value="reference"
-                  className="rounded-full text-base font-semibold transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#008B8B] data-[state=active]:to-[#16B8A6] data-[state=active]:text-white data-[state=active]:shadow-md"
+                  className="rounded-full text-base font-semibold transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#D4A437] data-[state=active]:to-[#F6B93B] data-[state=active]:text-[#043E21] data-[state=active]:shadow-md"
                 >
                   Перенос с референса
                 </TabsTrigger>
@@ -575,7 +575,7 @@ function Studio() {
                     maxLength={800}
                     rows={3}
                     placeholder="Например: лёгкие смоки-айз в бронзовых тонах, акцент на глаза, нюдовые губы, сияющая кожа…"
-                    className="resize-none border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-base text-[#6F4E37] placeholder:text-[#6F4E37]/55 focus-visible:ring-[#8CE99A]/70"
+                    className="resize-none border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-base text-[#6F4E37] placeholder:text-[#6F4E37]/55 focus-visible:ring-[#F6B93B]/60"
                     aria-label="Описание образа"
                   />
                   <p className="mt-2 text-sm text-muted-foreground">
@@ -625,7 +625,7 @@ function Studio() {
                     maxLength={800}
                     rows={3}
                     placeholder="Необязательно: например, «сделай губы чуть светлее, а стрелки — тоньше»"
-                    className="resize-none border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-base text-[#6F4E37] placeholder:text-[#6F4E37]/55 focus-visible:ring-[#8CE99A]/70"
+                    className="resize-none border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-base text-[#6F4E37] placeholder:text-[#6F4E37]/55 focus-visible:ring-[#F6B93B]/60"
                     aria-label="Комментарий к переносу"
                   />
                   <p className="mt-2 text-sm text-muted-foreground">

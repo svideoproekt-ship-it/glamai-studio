@@ -87,7 +87,7 @@ export function TransferSheet({
         {/* 1. Ссылка на фото — универсальный путь: доходит в любой мессенджер,
             клиент сохраняет фото одной кнопкой на странице */}
         <div className="mt-4 flex items-start gap-2.5">
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#8CE99A]/25 text-xs font-bold text-[#DFF7E6]">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#D4A437]/25 text-xs font-bold text-[#F3E2B9]">
             1
           </span>
           <div className="flex-1">
@@ -111,7 +111,7 @@ export function TransferSheet({
               скопируйте и вставьте в сообщение.
             </p>
             {linkUrl && (
-              <p className="mt-2 break-all rounded-lg border border-[#C9EED8]/25 bg-[#043E21]/70 p-2 text-[11px] leading-relaxed text-[#CFEEDB]">
+              <p className="mt-2 break-all rounded-lg border border-[#F8F1E1]/15 bg-[#032B16]/80 p-2 text-[11px] leading-relaxed text-[#E7DFC9]">
                 {linkUrl}
               </p>
             )}
@@ -122,7 +122,7 @@ export function TransferSheet({
             клиенту или сохранить в галерею штатным меню Telegram.
             В обычном браузере: прямое сохранение файла на устройство. */}
         <div className="mt-4 flex items-start gap-2.5">
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#9B6EF3]/25 text-xs font-bold text-[#D9CCFF]">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#B76E79]/25 text-xs font-bold text-[#F0D3D8]">
             2
           </span>
           <div className="flex-1">

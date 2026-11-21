@@ -42,11 +42,11 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
 
 /** Цветная подсветка активных инструментов (без тревожного красного) */
 const TOOL_COLORS: Record<string, string> = {
-  fluffy: "#008B8B",
+  fluffy: "#4E7D6B",
   flat: "#FF7A59",
-  sponge: "#9B6EF3",
-  pencil: "#3E8EF7",
-  fan: "#8CE99A",
+  sponge: "#B76E79",
+  pencil: "#7FA8C9",
+  fan: "#A8C686",
   spoolie: "#F6B93B",
 };
 
@@ -73,8 +73,8 @@ export function OptionChip({
       className={cn(
         "h-12 rounded-full border px-4 text-xl font-semibold transition-all active:scale-95",
         active
-          ? "border-transparent bg-gradient-to-r from-[#008B8B] to-[#16B8A6] text-white shadow-md shadow-[#032916]/40"
-          : "border-[#6F4E37]/35 bg-white/75 text-[#6F4E37] hover:border-[#6F4E37]/70 hover:bg-white"
+          ? "border-transparent bg-gradient-to-r from-[#D4A437] to-[#F6B93B] text-[#043E21] shadow-md shadow-[#032916]/40"
+          : "border-[#6F4E37]/30 bg-white/90 text-[#6F4E37] hover:border-[#6F4E37]/60 hover:bg-white"
       )}
     >
       {children}
@@ -209,7 +209,7 @@ export function ToolPicker({
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="rounded-xl border border-[#F8F1E1]/45 bg-[#F8F1E1]/45"
+      className="rounded-xl border border-[#E9DCC3] bg-[#F8F1E1]"
     >
       <CollapsibleTrigger
         data-testid={testId}
@@ -218,7 +218,7 @@ export function ToolPicker({
         <Wrench className="h-5 w-5 shrink-0" aria-hidden />
         <span className="flex-1 leading-tight">{title}</span>
         {activeCount > 0 && (
-          <span className="rounded-full bg-[#008B8B]/15 px-2.5 py-0.5 text-sm font-bold text-[#0A6E52]">
+          <span className="rounded-full bg-[#D4A437]/20 px-2.5 py-0.5 text-sm font-bold text-[#8A6414]">
             {activeCount}
           </span>
         )}
@@ -234,7 +234,7 @@ export function ToolPicker({
             if (!def) return null;
             const Icon = TOOL_ICONS[id] ?? Brush;
             const active = selected.includes(id);
-            const color = TOOL_COLORS[id] ?? "#008B8B";
+            const color = TOOL_COLORS[id] ?? "#B98A2E";
             return (
               <button
                 key={id}

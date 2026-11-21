@@ -42,7 +42,10 @@
   --color-aqua-brand: #16b8a6;
   --color-greenlight-brand: #8ce99a;
   --color-gold: #f6b93b;
-  --color-lav-brand: #9b6ef3;
+  --color-champagne: #d4a437;
+  --color-goldlight: #f3e2b9;
+  --color-rose: #b76e79;
+  --color-lav-brand: #9b6ef3; /* оставлен для совместимости, из хрома убран */
   --color-cocoa: #6f4e37;
   --color-cream: #f8f1e1;
   --color-forest: #0a5a30;
@@ -55,68 +58,69 @@
 }
 
 /*
-  «Зелёная студия»: сочный зелёный фон по всей площади (включая окна
-  портретов), кнопки и активные элементы — полноценный цвет морской
-  волны (#008B8B), названия в палитре и кистях — крупный шрифт цвета
-  какао на кремовых «плашках». Золото и лаванда — радостные акценты.
+  «Тёмное ателье» (v42): глубокий лесной фон по всей площади, текст — крем.
+  Кнопки и активные элементы — шампань-золото (#D4A437 → #F6B93B) с тёмно-
+  зелёным текстом: золото — единственный герой палитры. Названия в палитре
+  и кистях — крупный шрифт цвета какао на кремовых «плашках». Бирюза и
+  лаванда из хрома убраны; все сочетания проверены по WCAG (>= 4.5:1).
 */
 :root {
   --radius: 0.9rem;
-  --background: #2aa05a;
-  --foreground: #f2fbf5;
-  --card: #ffffff;
-  --card-foreground: #1f3d3b;
-  --popover: #ffffff;
-  --popover-foreground: #1f3d3b;
-  --primary: #008b8b;
-  --primary-foreground: #ffffff;
-  --secondary: #1e7a46;
-  --secondary-foreground: #eaf9f0;
-  --muted: rgba(4, 62, 33, 0.55);
-  --muted-foreground: #c9eed8;
-  --accent: #e7f8ec;
-  --accent-foreground: #2b8a3e;
-  --destructive: #8ce99a;
-  --destructive-foreground: #14532d;
-  --border: rgba(216, 245, 228, 0.28);
-  --input: rgba(216, 245, 228, 0.45);
-  --ring: #8ce99a;
-  --chart-1: #008b8b;
-  --chart-2: #16b8a6;
-  --chart-3: #f6b93b;
-  --chart-4: #9b6ef3;
-  --chart-5: #8ce99a;
-  --sidebar: #0a5a30;
-  --sidebar-foreground: #f2fbf5;
-  --sidebar-primary: #008b8b;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1e7a46;
-  --sidebar-accent-foreground: #eaf9f0;
-  --sidebar-border: rgba(216, 245, 228, 0.28);
-  --sidebar-ring: #8ce99a;
+  --background: #043e21;
+  --foreground: #f8f1e1;
+  --card: #083520;
+  --card-foreground: #f8f1e1;
+  --popover: #0b3a22;
+  --popover-foreground: #f8f1e1;
+  --primary: #d4a437;
+  --primary-foreground: #043e21;
+  --secondary: #0a5a30;
+  --secondary-foreground: #e9f3ec;
+  --muted: rgba(248, 241, 225, 0.08);
+  --muted-foreground: #e3d8c0;
+  --accent: rgba(248, 241, 225, 0.1);
+  --accent-foreground: #f8f1e1;
+  --destructive: #b0402c;
+  --destructive-foreground: #f8f1e1;
+  --border: rgba(248, 241, 225, 0.16);
+  --input: rgba(248, 241, 225, 0.28);
+  --ring: #f6b93b;
+  --chart-1: #d4a437;
+  --chart-2: #f6b93b;
+  --chart-3: #e9c46a;
+  --chart-4: #a8c686;
+  --chart-5: #b76e79;
+  --sidebar: #032b16;
+  --sidebar-foreground: #f8f1e1;
+  --sidebar-primary: #d4a437;
+  --sidebar-primary-foreground: #043e21;
+  --sidebar-accent: #0a5a30;
+  --sidebar-accent-foreground: #e9f3ec;
+  --sidebar-border: rgba(248, 241, 225, 0.16);
+  --sidebar-ring: #f6b93b;
 }
 
-/* Приложение всегда светлое: .dark повторяет :root, чтобы не было тёмных артефактов */
+/* Приложение всегда тёмное «ателье»: .dark повторяет :root, без светлых артефактов */
 .dark {
-  --background: #2aa05a;
-  --foreground: #f2fbf5;
-  --card: #ffffff;
-  --card-foreground: #1f3d3b;
-  --popover: #ffffff;
-  --popover-foreground: #1f3d3b;
-  --primary: #008b8b;
-  --primary-foreground: #ffffff;
-  --secondary: #1e7a46;
-  --secondary-foreground: #eaf9f0;
-  --muted: rgba(4, 62, 33, 0.55);
-  --muted-foreground: #c9eed8;
-  --accent: #e7f8ec;
-  --accent-foreground: #2b8a3e;
-  --destructive: #8ce99a;
-  --destructive-foreground: #14532d;
-  --border: rgba(216, 245, 228, 0.28);
-  --input: rgba(216, 245, 228, 0.45);
-  --ring: #8ce99a;
+  --background: #043e21;
+  --foreground: #f8f1e1;
+  --card: #083520;
+  --card-foreground: #f8f1e1;
+  --popover: #0b3a22;
+  --popover-foreground: #f8f1e1;
+  --primary: #d4a437;
+  --primary-foreground: #043e21;
+  --secondary: #0a5a30;
+  --secondary-foreground: #e9f3ec;
+  --muted: rgba(248, 241, 225, 0.08);
+  --muted-foreground: #e3d8c0;
+  --accent: rgba(248, 241, 225, 0.1);
+  --accent-foreground: #f8f1e1;
+  --destructive: #b0402c;
+  --destructive-foreground: #f8f1e1;
+  --border: rgba(248, 241, 225, 0.16);
+  --input: rgba(248, 241, 225, 0.28);
+  --ring: #f6b93b;
 }
 
 @layer base {
@@ -127,27 +131,27 @@
     @apply text-foreground;
     background-color: var(--background);
     background-image:
-      radial-gradient(900px 600px at 8% -8%, rgba(185, 246, 207, 0.3), transparent 60%),
-      radial-gradient(800px 560px at 96% 4%, rgba(246, 185, 59, 0.16), transparent 58%),
-      radial-gradient(760px 520px at 50% 106%, rgba(155, 110, 243, 0.14), transparent 56%),
-      radial-gradient(700px 480px at 88% 82%, rgba(0, 139, 139, 0.22), transparent 55%);
+      radial-gradient(900px 600px at 8% -8%, rgba(185, 246, 207, 0.1), transparent 60%),
+      radial-gradient(820px 580px at 96% 6%, rgba(246, 185, 59, 0.1), transparent 58%),
+      radial-gradient(700px 480px at 88% 96%, rgba(0, 139, 139, 0.14), transparent 55%),
+      linear-gradient(168deg, #032b16 0%, #043e21 52%, #0a5a30 100%);
     background-attachment: fixed;
   }
   ::selection {
-    background: rgba(0, 139, 139, 0.45);
-    color: #ffffff;
+    background: rgba(212, 164, 55, 0.4);
+    color: #f8f1e1;
   }
 }
 
-/* ── Брендовый градиентный текст (анимированный перелив) ── */
+/* ── Брендовый градиентный текст: шампань-золото (анимированный перелив) ── */
 .brand-text {
   background: linear-gradient(
     115deg,
-    #008b8b 0%,
-    #16b8a6 28%,
+    #b98a2e 0%,
+    #d4a437 28%,
     #f6b93b 52%,
-    #9b6ef3 78%,
-    #008b8b 100%
+    #f3e2b9 78%,
+    #b98a2e 100%
   );
   background-size: 250% 100%;
   -webkit-background-clip: text;
@@ -165,15 +169,16 @@
   }
 }
 
-/* ── Главная кнопка: морская волна → аква, блик при наведении ── */
+/* ── Главная кнопка: шампань-золото с тёмно-зелёным текстом, блик при наведении ── */
 .glam-btn {
   position: relative;
   overflow: hidden;
-  background-image: linear-gradient(110deg, #007a7a 0%, #008b8b 45%, #16b8a6 90%, #2fc9a8 115%);
+  background-image: linear-gradient(110deg, #c1921f 0%, #d4a437 45%, #f0b94e 90%, #f6c96b 115%);
   background-size: 160% 100%;
   background-position: 0% 50%;
-  color: #ffffff;
-  box-shadow: 0 6px 22px rgba(0, 139, 139, 0.35);
+  color: #043e21;
+  font-weight: 700;
+  box-shadow: 0 6px 22px rgba(212, 164, 55, 0.35);
   transition:
     background-position 0.5s ease,
     filter 0.2s ease,
@@ -193,7 +198,7 @@
   background-position: 90% 50%;
   filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 9px 28px rgba(0, 139, 139, 0.42);
+  box-shadow: 0 9px 28px rgba(212, 164, 55, 0.45);
 }
 .glam-btn:hover:not(:disabled)::after {
   transform: translateX(130%) skewX(-18deg);
@@ -206,22 +211,22 @@
   box-shadow: none;
 }
 
-/* ── Зелёная карточка секции (глубокий лесной тон на живом зелёном фоне) ── */
+/* ── Тёмная карточка секции (глубокий лесной тон на фоне «ателье») ── */
 .green-card {
-  background: linear-gradient(155deg, rgba(10, 104, 56, 0.93), rgba(6, 78, 42, 0.95));
-  border: 1px solid rgba(190, 243, 212, 0.3);
-  box-shadow: 0 14px 44px rgba(3, 40, 22, 0.4);
+  background: linear-gradient(155deg, rgba(5, 40, 22, 0.94), rgba(3, 30, 17, 0.97));
+  border: 1px solid rgba(248, 241, 225, 0.14);
+  box-shadow: 0 14px 44px rgba(1, 16, 9, 0.5);
   backdrop-filter: blur(6px);
 }
 
-/* ── «Утопленное» зелёное окно (дропзоны, пустой результат) ── */
+/* ── «Утопленное» тёмное окно с золотой штриховкой (дропзоны, пустой результат) ── */
 .green-window {
-  background: rgba(4, 62, 33, 0.62);
-  border: 2px dashed rgba(140, 233, 154, 0.55);
+  background: rgba(2, 24, 13, 0.55);
+  border: 2px dashed rgba(246, 185, 59, 0.45);
 }
 .green-window:hover {
-  border-color: rgba(140, 233, 154, 0.9);
-  background: rgba(4, 81, 43, 0.72);
+  border-color: rgba(246, 185, 59, 0.85);
+  background: rgba(6, 48, 27, 0.65);
 }
 
 /* ── Плавающие цветные пятна фона ── */
@@ -350,15 +355,15 @@
   }
 }
 
-/* ── Радужный лоадер: вращающееся коническое кольцо ── */
+/* ── Золотой лоадер: вращающееся коническое кольцо ── */
 .conic-loader {
   background: conic-gradient(
-    #008b8b,
-    #16b8a6,
-    #8ce99a,
+    #b98a2e,
+    #d4a437,
     #f6b93b,
-    #9b6ef3,
-    #008b8b
+    #f3e2b9,
+    #d4a437,
+    #b98a2e
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
@@ -371,7 +376,7 @@
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  background: rgba(0, 139, 139, 0.35);
+  background: rgba(212, 164, 55, 0.35);
   animation: handle-pulse 2.4s ease-out infinite;
   pointer-events: none;
 }
@@ -387,16 +392,16 @@
   }
 }
 
-/* ── Радужная линия-подчёркивание ── */
+/* ── Шампань-линия-подчёркивание (имя класса оставлено для совместимости) ── */
 .rainbow-line {
   background: linear-gradient(
     90deg,
-    #008b8b,
-    #16b8a6,
-    #8ce99a,
+    #043e21,
+    #b98a2e,
     #f6b93b,
-    #9b6ef3,
-    #008b8b
+    #f3e2b9,
+    #b98a2e,
+    #043e21
   );
   background-size: 200% 100%;
   animation: gradient-shift 8s linear infinite;
@@ -412,7 +417,7 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(0, 139, 139, 0.08), transparent);
+  background: linear-gradient(90deg, transparent, rgba(246, 185, 59, 0.1), transparent);
   animation: shimmer 1.9s infinite;
 }
 @keyframes shimmer {

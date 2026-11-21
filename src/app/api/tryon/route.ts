@@ -62,7 +62,13 @@ async function stampBrand(dataUrl: string): Promise<string> {
     const h = meta.height ?? 0;
     if (!w || !h || w < 480) return dataUrl;
     const ovW = Math.round(w * 0.62);
-    const ov = await sharp(brandOverlay).resize({ width: ovW }).png().toBuffer();
+    // v42: подпись мягкая — 55% непрозрачности, шампань-крем не спорит с образом
+    const ov = await sharp(brandOverlay)
+      .resize({ width: ovW })
+      .ensureAlpha()
+      .linear([1, 1, 1, 0.55], [0, 0, 0, 0])
+      .png()
+      .toBuffer();
     const ovMeta = await sharp(ov).metadata();
     const ovH = ovMeta.height ?? 0;
     if (!ovH) return dataUrl;

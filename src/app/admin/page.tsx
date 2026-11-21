@@ -71,7 +71,7 @@ function planBadge(plan: string, untilIso: string | null): { text: string; cls: 
   const active = untilIso && new Date(untilIso).getTime() > Date.now();
   if (plan === "start") {
     return active
-      ? { text: "Старт", cls: "bg-[#008B8B]/80 text-white" }
+      ? { text: "Старт", cls: "bg-[#B98A2E]/30 text-[#F3E2B9]" }
       : { text: "Старт (истекла)", cls: "bg-white/15 text-[#F8F1E1]/70" };
   }
   if (plan === "salon") {
@@ -252,7 +252,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-[#043E21] px-4 py-8 text-[#F8F1E1]">
       <div className="mx-auto w-full max-w-5xl">
         <header className="mb-6 flex items-center gap-3">
-          <div className="rounded-2xl bg-gradient-to-br from-[#008B8B] via-[#16B8A6] to-[#F6B93B] p-2">
+          <div className="rounded-2xl bg-gradient-to-br from-[#B98A2E] via-[#D4A437] to-[#F6B93B] p-2">
             <Sparkles className="h-5 w-5 text-white" aria-hidden />
           </div>
           <div>
@@ -379,7 +379,7 @@ export default function AdminPage() {
               {/* Сумма к оплате: пересчитывается вместе с тарифом и сроком */}
               <p className="mt-2 text-sm text-[#F8F1E1]/80" data-testid="price-hint">
                 К оплате:{" "}
-                <b className="font-serif text-lg text-[#8CE99A]">
+                <b className="font-serif text-lg text-[#F6B93B]">
                   {grantTotal.toLocaleString("ru-RU")} ₽
                 </b>{" "}
                 — {planLabel(grantPlan)} на {grantDaysNum} дн. (= {monthsLabel} ×{" "}
@@ -419,7 +419,7 @@ export default function AdminPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-red-300/40 text-red-200 hover:bg-red-500/15"
+                  className="border-[#E25C4A]/45 text-[#F2B8AE] hover:bg-[#E25C4A]/15"
                   disabled={busy || !grantUser.trim()}
                   onClick={() =>
                     void act(
@@ -522,7 +522,7 @@ export default function AdminPage() {
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                               s.active
-                                ? "bg-[#008B8B]/80 text-white"
+                                ? "bg-[#B98A2E]/30 text-[#F3E2B9]"
                                 : "bg-white/15 text-[#F8F1E1]/70"
                             }`}
                           >
@@ -566,7 +566,7 @@ export default function AdminPage() {
                             </Button>
                           </div>
                         </div>
-                        <p className="mt-1.5 break-all text-xs text-[#CFEEDB]">
+                        <p className="mt-1.5 break-all text-xs text-[#E7DFC9]">
                           {link || "Задай TELEGRAM_BOT_USERNAME на Vercel — и ссылка появится"}
                         </p>
                         {s.bookingUrl && (
@@ -674,12 +674,12 @@ export default function AdminPage() {
             ) : null}
 
             {error && (
-              <p className="mb-4 rounded-xl border border-red-300/60 bg-red-50/95 p-3 text-sm text-red-900">
+              <p className="mb-4 rounded-xl border border-[#E25C4A]/45 bg-[#2E1512]/95 p-3 text-sm text-[#F2B8AE]">
                 {error}
               </p>
             )}
             {notice && (
-              <p className="mb-4 rounded-xl border border-emerald-300/60 bg-emerald-50/95 p-3 text-sm text-emerald-900">
+              <p className="mb-4 rounded-xl border border-[#8CE99A]/30 bg-[#0B2E1C]/90 p-3 text-sm text-[#C9EED8]">
                 {notice}
               </p>
             )}
@@ -722,7 +722,7 @@ export default function AdminPage() {
                               onClick={() =>
                                 setGrantUser(u.username ? `@${u.username}` : String(u.telegramId))
                               }
-                              className="text-left text-xs text-[#8CE99A] underline-offset-2 hover:underline"
+                              className="text-left text-xs text-[#F6B93B] underline-offset-2 hover:underline"
                               title="Подставить в поле выдачи"
                               data-testid={`pick-user-${u.telegramId}`}
                             >
