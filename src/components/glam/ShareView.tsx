@@ -8,9 +8,10 @@
 // галерею» внутри студии открывает эту страницу во внешнем браузере.
 
 import { useState } from "react";
-import { Download, Sparkles } from "lucide-react";
+import { Download, Sparkles, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isIosDevice, saveImageFile, shareImage } from "@/lib/download";
+import { ZoomViewer } from "./ZoomViewer";
 
 function formatDate(iso: string): string {
   try {
@@ -32,6 +33,8 @@ export function ShareView({
 }) {
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  // v44: лупа деталей — клиентка тоже может рассмотреть образ вблизи
+  const [zoomOpen, setZoomOpen] = useState(false);
   const until = formatDate(expiresAtIso);
 
   const handleSave = async () => {
@@ -97,6 +100,16 @@ export function ShareView({
           <Download className="h-4 w-4" aria-hidden />
           {busy ? "Готовим…" : "Сохранить фото"}
         </Button>
+        <Button
+          variant="outline"
+          className="mt-2 h-11 w-full border-[#F8F1E1]/30 bg-transparent text-[#F8F1E1] hover:bg-white/10"
+          onClick={() => setZoomOpen(true)}
+          aria-label="Рассмотреть образ вблизи"
+          data-testid="share-zoom"
+        >
+          <ZoomIn className="h-4 w-4" aria-hidden />
+          Рассмотреть образ вблизи
+        </Button>
         <p className="mt-2 text-center text-xs leading-relaxed text-[#F8F1E1]/60">
           Либо просто удерживайте палец на фото и выберите
           «Сохранить в галерею» / «Добавить в Фото».
@@ -105,6 +118,15 @@ export function ShareView({
           <p className="mt-3 text-center text-sm font-medium leading-relaxed text-[#F6B93B]">
             {hint}
           </p>
+        )}
+
+        {/* v44: лупа деталей — двойное нажатие и пинч работают на фото клиента */}
+        {zoomOpen && (
+          <ZoomViewer
+            src={imgSrc}
+            alt="Ваш образ GlamAI Studio крупным планом"
+            onClose={() => setZoomOpen(false)}
+          />
         )}
 
         {until && (

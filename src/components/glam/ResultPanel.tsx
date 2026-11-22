@@ -6,12 +6,13 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Eye,
   Info,
   Link2,
   RotateCcw,
   Share2,
   Sparkles,
-  X,
+  ZoomIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +30,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { BeforeAfterSlider } from "./BeforeAfterSlider";
+import { ZoomViewer, EYES_FOCUS, type ZoomFocus } from "./ZoomViewer";
 
 const STATUSES = [
   "Изучаем черты лица…",
@@ -99,7 +101,12 @@ export function ResultPanel({
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [saveHint, setSaveHint] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState(false);
+  // v44: лупа деталей (вместо старого лайтбокса) — стрелки, подводка и
+  // растяжка тонов на фото шириной с экран не видны, нужен зум. Открывается
+  // кнопками «Глаза крупно» / «Рассмотреть детали» и из запасного просмотра.
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const [zoomFocus, setZoomFocus] = useState<ZoomFocus | null>(null);
+  const [zoomFooter, setZoomFooter] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Ссылка на фото /f/<id> (v40) — универсальный путь к клиенту и к галерее
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
@@ -307,6 +314,16 @@ export function ResultPanel({
     }
   };
 
+  // Запасной крупный просмотр (когда и ссылка, и бот недоступны): в v44 это
+  // лупа с зумом, и подсказка про сохранение внизу
+  const openFallbackViewer = () => {
+    setZoomFocus(null);
+    setZoomFooter(
+      "Удерживайте палец на фото — телефон предложит «Сохранить» (срабатывает не везде). Надёжнее всего — «Получить ссылку»: фото откроется в браузере с кнопкой «Сохранить фото»."
+    );
+    setZoomOpen(true);
+  };
+
   // Запрос к /api/send-image: бот кладёт фото в чат мастера и сообщает свой
   // username. Общий для «Сохранить в галерею» и листа передачи.
   const sendViaBot = async (): Promise<{
@@ -369,15 +386,15 @@ export function ResultPanel({
             data.error ??
               "Не удалось отправить, попробуйте ещё раз."
           );
-          // запасной путь, если бот не настроен: крупный просмотр
-          setLightbox(true);
+          // запасной путь, если бот не настроен: лупа с зумом
+          openFallbackViewer();
           return;
         }
         setSaveHint(botSaveHint());
         openBotChat(data.botUsername);
       } catch {
         setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
-        setLightbox(true);
+        openFallbackViewer();
       } finally {
         setSending(false);
       }
@@ -465,6 +482,43 @@ export function ResultPanel({
         </div>
       )}
       <BeforeAfterSlider before={original ?? result} after={result} alt="Образ GlamAI" />
+
+      {/* v44: лупа деталей — стрелки, подводка и растяжка тонов видны только
+          вблизи. Пресет «Глаза крупно» сразу открывает зум на уровень глаз —
+          это главный аргумент для мастеров и школ. */}
+      <div className="mx-auto flex w-full max-w-md flex-wrap items-center justify-center gap-2">
+        <Button
+          className="glam-btn h-10 font-semibold"
+          onClick={() => {
+            setZoomFooter(null);
+            setZoomFocus(EYES_FOCUS);
+            setZoomOpen(true);
+          }}
+          aria-label="Увеличить область глаз"
+          data-testid="zoom-eyes"
+        >
+          <Eye className="h-4 w-4" aria-hidden />
+          Глаза крупно
+        </Button>
+        <Button
+          variant="outline"
+          className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
+          onClick={() => {
+            setZoomFooter(null);
+            setZoomFocus(null);
+            setZoomOpen(true);
+          }}
+          aria-label="Рассмотреть детали образа"
+          data-testid="zoom-details"
+        >
+          <ZoomIn className="h-4 w-4" aria-hidden />
+          Рассмотреть детали
+        </Button>
+      </div>
+      <p className="mx-auto max-w-md text-center text-xs leading-relaxed text-muted-foreground">
+        Стрелки, подводка и растяжка тонов лучше всего видны вблизи —
+        увеличьте фото двумя пальцами или двойным нажатием.
+      </p>
 
       {/* Единый блок передачи: без дублей. Первичная кнопка — системное
           «Поделиться» с файлом (там Telegram/WhatsApp/MAX/почта), иначе —
@@ -601,50 +655,17 @@ export function ResultPanel({
         }}
       />
 
-      {/* Фото крупно внутри студии: долгое нажатие на картинку даёт родное меню
-          телефона «Сохранить в галерею» / «Поделиться» (в нём Telegram, MAX и
-          WhatsApp) — работает там, где WebView Telegram глотает скачивания */}
-      {lightbox && result && (
-        <div
-          className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
-          onClick={() => setLightbox(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Образ крупным планом"
-          data-testid="lightbox"
-        >
-          {/* Крупный явный выход: чёрный экран больше не «ловушка» */}
-          <button
-            type="button"
-            aria-label="Закрыть просмотр"
-            className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white"
-            onClick={() => setLightbox(false)}
-            data-testid="lightbox-close"
-          >
-            <X className="h-6 w-6" aria-hidden />
-          </button>
-          <img
-            src={result}
-            alt="Образ GlamAI Studio крупным планом"
-            className="max-h-[70vh] max-w-full rounded-xl shadow-2xl"
-            draggable={false}
-            onClick={(e) => e.stopPropagation()}
-            data-testid="lightbox-image"
-          />
-          <p className="mt-4 max-w-md text-center text-sm leading-relaxed text-[#F8F1E1]/85">
-            Запасной просмотр: удерживайте палец на фото → «Сохранить»
-            (срабатывает не везде). Надёжнее всего — «Получить ссылку»:
-            фото откроется в браузере с кнопкой «Сохранить фото».
-          </p>
-          <Button
-            variant="outline"
-            className="mt-4 h-9 border-[#F8F1E1]/35 text-[#F8F1E1] hover:bg-white/10"
-            onClick={() => setLightbox(false)}
-          >
-            <X className="h-4 w-4" aria-hidden />
-            Закрыть
-          </Button>
-        </div>
+      {/* v44: лупа деталей — и «Рассмотреть детали», и пресет «Глаза крупно»,
+          и запасной просмотр из потока сохранения (с подсказкой внизу).
+          Долгое нажатие на фото сохраняет родное меню телефона. */}
+      {zoomOpen && result && (
+        <ZoomViewer
+          src={result}
+          alt="Образ GlamAI Studio крупным планом"
+          focus={zoomFocus}
+          footer={zoomFooter}
+          onClose={() => setZoomOpen(false)}
+        />
       )}
     </div>
   );
