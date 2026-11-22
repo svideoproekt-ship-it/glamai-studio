@@ -85,7 +85,8 @@ export function ShareView({
         <img
           src={imgSrc}
           alt="Ваш образ GlamAI Studio"
-          className="w-full rounded-2xl shadow-2xl"
+          className="w-full cursor-zoom-in rounded-2xl shadow-2xl"
+          onClick={() => setZoomOpen(true)}
           draggable={false}
           data-testid="share-photo"
         />

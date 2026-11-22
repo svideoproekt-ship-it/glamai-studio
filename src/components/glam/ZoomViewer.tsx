@@ -4,17 +4,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Maximize, Minus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-// v44: лупа для деталей макияжа. Стрелки, подводка и растяжка тонов на
-// портрете шириной с экран — примерно 1 пиксель: без увеличения их просто
-// не видно. Этот просмотрщик даёт честный зум до 4x (нативное разрешение
-// картинки — около 1000 px по ширине), поэтому «две стрелки» реально
-// рассмотреть: мастер показывает детали клиентке, школа — ученицам.
+// v44 (доработка 44.1): лупа для деталей макияжа. Стрелки, подводка и
+// растяжка тонов на портрете шириной с экран — примерно 1 пиксель: без
+// увеличения их просто не видно. Этот просмотрщик даёт честный зум до 4x
+// (нативное разрешение картинки — около 1000 px по ширине), поэтому «две
+// стрелки» реально рассмотреть: мастер показывает детали клиентке, школа —
+// ученицам.
 //
 // Управление:
 //   • два пальца — масштаб (пинч), один палец — передвинуть фото;
 //   • двойное нажатие — приблизить к точке нажатия / вернуть как было;
 //   • на компьютере — колесо мыши, двойной клик, перетаскивание;
-//   • кнопки +/−/сброс внизу — для тех, кому жесты неудобны.
+//   • кнопки +/−/сброс внизу — для тех, кому жесты неудобны;
+//   • системная кнопка «Назад» в шапке Telegram тоже закрывает лупу.
+//
+// Почему жесты построены на сырых touch-событиях (44.1): в части WebView
+// Telegram Pointer Events отдают только первый палец, а iOS перехватывает
+// пинч под «зум страницы». Touch-события работают во всех WebView, зум
+// страницы блокируем meta viewport + перехватом gesturestart, а свайпы
+// Telegram на время лупы отключаем (disableVerticalSwipes).
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
@@ -43,6 +51,14 @@ interface View {
   ty: number;
 }
 
+/** Базовые размеры: фото без трансформации и поле жестов */
+interface Base {
+  bw: number;
+  bh: number;
+  W: number;
+  H: number;
+}
+
 const IDENTITY: View = { scale: 1, tx: 0, ty: 0 };
 
 export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: ZoomViewerProps) {
@@ -66,7 +82,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
 
   // Базовый (без трансформации) размер картинки и размер контейнера.
   // getBoundingClientRect включает текущий scale, поэтому делим на него.
-  const metrics = useCallback((curScale: number) => {
+  const metrics = useCallback((curScale: number): Base | null => {
     const img = imgRef.current;
     const box = boxRef.current;
     if (!img || !box) return null;
@@ -81,19 +97,26 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
   }, []);
 
   /** Не даём фото улететь за края: запас панорамы = излишек масштаба */
-  const clamp = useCallback(
-    (oldScale: number, s: number, tx: number, ty: number): View => {
-      const m = metrics(oldScale);
-      if (!m) return { scale: s, tx, ty };
-      const maxX = Math.max(0, (m.bw * s - m.W) / 2);
-      const maxY = Math.max(0, (m.bh * s - m.H) / 2);
+  const clampWith = useCallback(
+    (base: Base, s: number, tx: number, ty: number): View => {
+      const maxX = Math.max(0, (base.bw * s - base.W) / 2);
+      const maxY = Math.max(0, (base.bh * s - base.H) / 2);
       return {
         scale: s,
         tx: Math.min(maxX, Math.max(-maxX, tx)),
         ty: Math.min(maxY, Math.max(-maxY, ty)),
       };
     },
-    [metrics],
+    [],
+  );
+
+  const clamp = useCallback(
+    (oldScale: number, s: number, tx: number, ty: number): View => {
+      const m = metrics(oldScale);
+      if (!m) return { scale: s, tx, ty };
+      return clampWith(m, s, tx, ty);
+    },
+    [clampWith, metrics],
   );
 
   /** Приближение к точке (px, py — координаты внутри контейнера) */
@@ -108,9 +131,9 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       const y = (py - m.H / 2 - v.ty) / v.scale;
       const ntx = px - m.W / 2 - x * s;
       const nty = py - m.H / 2 - y * s;
-      apply(clamp(v.scale, s, ntx, nty));
+      apply(clampWith(m, s, ntx, nty));
     },
-    [apply, clamp, metrics],
+    [apply, clampWith, metrics],
   );
 
   /** Центрирование точки фото (fx, fy в долях 0..1) при заданном масштабе */
@@ -120,9 +143,9 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       if (!m) return;
       const x = (fx - 0.5) * m.bw;
       const y = (fy - 0.5) * m.bh;
-      apply(clamp(viewRef.current.scale, s, -x * s, -y * s));
+      apply(clampWith(m, s, -x * s, -y * s));
     },
-    [apply, clamp, metrics],
+    [apply, clampWith, metrics],
   );
 
   const reset = useCallback(() => apply(IDENTITY), [apply]);
@@ -157,103 +180,208 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
     };
   }, [onClose]);
 
-  // Жесты: единый обработчик Pointer Events (палец + мышь), нативные
-  // слушатели с passive:false — иначе браузер сам перехватит касания
+  // Telegram: на время лупы отключаем вертикальные свайпы (иначе свайп
+  // пальцем сворачивает мини-апп посреди пинча) и подключаем системную
+  // кнопку «Назад» — она закрывает лупу. Всё в try/catch: старые клиенты
+  // этих методов не знают, и это не страшно.
   useEffect(() => {
+    if (!mounted) return;
+    const tg = (window as unknown as { Telegram?: { WebApp?: Record<string, unknown> & {
+      disableVerticalSwipes?: () => void;
+      enableVerticalSwipes?: () => void;
+      isVerticalSwipesEnabled?: boolean;
+      BackButton?: {
+        show?: () => void;
+        hide?: () => void;
+        onClick?: (cb: () => void) => void;
+        offClick?: (cb: () => void) => void;
+      };
+    } } }).Telegram?.WebApp;
+    try {
+      tg?.disableVerticalSwipes?.();
+      if ("isVerticalSwipesEnabled" in (tg ?? {})) tg!.isVerticalSwipesEnabled = false;
+      tg?.BackButton?.show?.();
+    } catch {
+      /* старый клиент — жесты останутся штатными, это не ломает лупу */
+    }
+    const onBack = () => onClose();
+    try {
+      tg?.BackButton?.onClick?.(onBack);
+    } catch {
+      /* не критично */
+    }
+    return () => {
+      try {
+        tg?.enableVerticalSwipes?.();
+        if ("isVerticalSwipesEnabled" in (tg ?? {})) tg!.isVerticalSwipesEnabled = true;
+        tg?.BackButton?.offClick?.(onBack);
+        tg?.BackButton?.hide?.();
+      } catch {
+        /* не критично */
+      }
+    };
+  }, [mounted, onClose]);
+
+  // Жесты: пальцы — сырые touch-события, мышь — mousedown/wheel/dblclick.
+  // Нативные слушатели с passive:false, иначе браузер перехватит касания.
+  // ВАЖНО (44.1): эффект должен ждать mounted! До портала boxRef пуст,
+  // и слушатели молча не вешались — пинч не работал ни на одном устройстве.
+  useEffect(() => {
+    if (!mounted) return;
     const box = boxRef.current;
     if (!box) return;
 
-    const pointers = new Map<number, { x: number; y: number }>();
+    const touches = new Map<number, { x: number; y: number }>();
     let pinchStartDist = 0;
     let pinchStartScale = 1;
+    // Базовые размеры фиксируем на старте жеста: посреди пинча React может
+    // ещё не перерисовать картинку, и live-замер даст дрожание якоря
+    let gestureBase: Base | null = null;
     let panLast: { x: number; y: number } | null = null;
     let lastTap = { time: 0, x: 0, y: 0 };
+    let lastTouchAt = 0;
+    let mousePan: { x: number; y: number } | null = null;
 
-    const rel = (e: PointerEvent) => {
+    const rel = (clientX: number, clientY: number) => {
       const r = box.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
+      return { x: clientX - r.left, y: clientY - r.top };
     };
 
     const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
       Math.hypot(a.x - b.x, a.y - b.y);
 
-    const onDown = (e: PointerEvent) => {
-      const p = rel(e);
-      pointers.set(e.pointerId, p);
-      gesturing.current = true;
-      if (pointers.size === 1) {
-        panLast = p;
-      } else if (pointers.size === 2) {
-        const [a, b] = [...pointers.values()];
-        pinchStartDist = dist(a, b);
-        pinchStartScale = viewRef.current.scale;
-        panLast = null;
-      }
+    /** Зум вокруг точки mid к целевому масштабу target (внутри жеста) */
+    const pinchTo = (mid: { x: number; y: number }, target: number) => {
+      const base = gestureBase;
+      if (!base) return;
+      const v = viewRef.current;
+      const cl = Math.min(MAX_SCALE, Math.max(MIN_SCALE, target));
+      // координаты точки фото (относительно центра) под серединой пальцев
+      const x = (mid.x - base.W / 2 - v.tx) / v.scale;
+      const y = (mid.y - base.H / 2 - v.ty) / v.scale;
+      apply(clampWith(base, cl, mid.x - base.W / 2 - x * cl, mid.y - base.H / 2 - y * cl));
+    };
+
+    const haptic = () => {
       try {
-        box.setPointerCapture(e.pointerId);
+        const tg = (window as unknown as {
+          Telegram?: { WebApp?: { HapticFeedback?: { impactOccurred?: (s: string) => void } } };
+        }).Telegram?.WebApp;
+        tg?.HapticFeedback?.impactOccurred?.("light");
       } catch {
         /* не критично */
       }
     };
 
-    const onMove = (e: PointerEvent) => {
-      if (!pointers.has(e.pointerId)) return;
-      const p = rel(e);
-      pointers.set(e.pointerId, p);
-
-      if (pointers.size >= 2 && pinchStartDist > 0) {
-        const [a, b] = [...pointers.values()];
-        const d = dist(a, b);
-        const s = pinchStartScale * (d / pinchStartDist);
-        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        // зум вокруг середины между пальцами, без анимации
+    /** Двойное нажатие: приблизить к точке / вернуть как было */
+    const doubleTap = (p: { x: number; y: number }) => {
+      const now = Date.now();
+      const moved = Math.hypot(p.x - lastTap.x, p.y - lastTap.y);
+      if (now - lastTap.time < 320 && moved < 30) {
         const v = viewRef.current;
-        const m = metrics(v.scale);
-        if (m) {
-          const cl = Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
-          const x = (mid.x - m.W / 2 - v.tx) / v.scale;
-          const y = (mid.y - m.H / 2 - v.ty) / v.scale;
-          apply(clamp(v.scale, cl, mid.x - m.W / 2 - x * cl, mid.y - m.H / 2 - y * cl));
-        }
-        return;
-      }
-
-      // один палец — панорама (на масштабе 1 всё равно зажмётся в 0)
-      if (panLast && pointers.size === 1) {
-        const v = viewRef.current;
-        const ntx = v.tx + (p.x - panLast.x);
-        const nty = v.ty + (p.y - panLast.y);
-        panLast = p;
-        apply(clamp(v.scale, v.scale, ntx, nty));
+        if (v.scale > 1.25) reset();
+        else zoomAt(p.x, p.y, 2.5);
+        haptic();
+        lastTap = { time: 0, x: 0, y: 0 };
+      } else {
+        lastTap = { time: now, x: p.x, y: p.y };
       }
     };
 
-    const onUp = (e: PointerEvent) => {
-      const p = rel(e);
-      const was = pointers.size;
-      pointers.delete(e.pointerId);
-      if (pointers.size === 0) {
+    // --- Пальцы ---
+    const onTouchStart = (e: TouchEvent) => {
+      lastTouchAt = Date.now();
+      gesturing.current = true;
+      for (const t of Array.from(e.changedTouches)) {
+        touches.set(t.identifier, rel(t.clientX, t.clientY));
+      }
+      if (touches.size >= 2) {
+        const [a, b] = [...touches.values()].slice(0, 2);
+        const img = imgRef.current;
+        const r = img?.getBoundingClientRect();
+        if (img && r && r.width > 0) {
+          gestureBase = {
+            bw: r.width / viewRef.current.scale,
+            bh: r.height / viewRef.current.scale,
+            W: box.clientWidth,
+            H: box.clientHeight,
+          };
+        } else {
+          gestureBase = metrics(viewRef.current.scale);
+        }
+        pinchStartDist = dist(a, b);
+        pinchStartScale = viewRef.current.scale;
+        panLast = null;
+        lastTap = { time: 0, x: 0, y: 0 }; // пинч сбрасывает счётчик тапов
+      } else if (touches.size === 1) {
+        panLast = [...touches.values()][0];
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      // блокируем прокрутку страницы и нативный зум — жест наш
+      if (e.cancelable) e.preventDefault();
+      for (const t of Array.from(e.changedTouches)) {
+        if (touches.has(t.identifier)) touches.set(t.identifier, rel(t.clientX, t.clientY));
+      }
+      if (touches.size >= 2 && pinchStartDist > 0) {
+        const [a, b] = [...touches.values()].slice(0, 2);
+        const d = dist(a, b);
+        if (d > 0) {
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          pinchTo(mid, pinchStartScale * (d / pinchStartDist));
+        }
+        return;
+      }
+      if (panLast && touches.size === 1) {
+        const p = [...touches.values()][0];
+        const v = viewRef.current;
+        const dx = p.x - panLast.x;
+        const dy = p.y - panLast.y;
+        panLast = p;
+        apply(clamp(v.scale, v.scale, v.tx + dx, v.ty + dy));
+      }
+    };
+
+    const finishTouch = (e: TouchEvent, isCancel: boolean) => {
+      const ended = Array.from(e.changedTouches).map((t) => rel(t.clientX, t.clientY));
+      for (const t of Array.from(e.changedTouches)) touches.delete(t.identifier);
+      if (touches.size === 0) {
         gesturing.current = false;
         panLast = null;
         pinchStartDist = 0;
-        // двойное нажатие пальцем — приблизить/вернуть (для мыши есть dblclick)
-        if (was === 1 && e.pointerType !== "mouse") {
-          const now = Date.now();
-          const moved = Math.hypot(p.x - lastTap.x, p.y - lastTap.y);
-          if (now - lastTap.time < 320 && moved < 28) {
-            const v = viewRef.current;
-            if (v.scale > 1.25) reset();
-            else zoomAt(p.x, p.y, 2.5);
-            lastTap = { time: 0, x: 0, y: 0 };
-          } else {
-            lastTap = { time: now, x: p.x, y: p.y };
-          }
-        }
-      } else if (pointers.size === 1) {
-        // из пинча остался один палец — начинаем панораму заново
+        gestureBase = null;
+        if (!isCancel && ended.length > 0) doubleTap(ended[0]);
+      } else if (touches.size === 1) {
+        // из пинча остался один палец — панорама с его текущего положения
         pinchStartDist = 0;
-        panLast = [...pointers.values()][0];
+        gestureBase = null;
+        panLast = [...touches.values()][0];
       }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => finishTouch(e, false);
+    const onTouchCancel = (e: TouchEvent) => finishTouch(e, true);
+
+    // --- Мышь (компьютер). После касания пальцем браузер подсовывает
+    // «мышиные» события-призраки — отсекаем их по времени. ---
+    const isGhostMouse = () => Date.now() - lastTouchAt < 700;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (isGhostMouse() || e.button !== 0) return;
+      mousePan = rel(e.clientX, e.clientY);
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (!mousePan) return;
+      const p = rel(e.clientX, e.clientY);
+      const v = viewRef.current;
+      const dx = p.x - mousePan.x;
+      const dy = p.y - mousePan.y;
+      mousePan = p;
+      apply(clamp(v.scale, v.scale, v.tx + dx, v.ty + dy));
+    };
+    const onMouseUp = () => {
+      mousePan = null;
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -265,34 +393,43 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
     };
 
     const onDblClick = (e: MouseEvent) => {
+      if (isGhostMouse()) return;
       const r = box.getBoundingClientRect();
       const v = viewRef.current;
       if (v.scale > 1.25) reset();
       else zoomAt(e.clientX - r.left, e.clientY - r.top, 2.5);
     };
 
-    // touchmove с passive:false — iOS иначе тянет страницу за фото
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.cancelable) e.preventDefault();
-    };
+    // iOS: нативный «зум страницы» двумя пальцами перехватывает жест ещё до
+    // наших событий — глушим его на всё время лупы
+    const stopNativeGesture = (e: Event) => e.preventDefault();
+    document.addEventListener("gesturestart", stopNativeGesture, { passive: false });
+    document.addEventListener("gesturechange", stopNativeGesture, { passive: false });
 
-    box.addEventListener("pointerdown", onDown);
-    box.addEventListener("pointermove", onMove);
-    box.addEventListener("pointerup", onUp);
-    box.addEventListener("pointercancel", onUp);
+    box.addEventListener("touchstart", onTouchStart, { passive: false });
+    box.addEventListener("touchmove", onTouchMove, { passive: false });
+    box.addEventListener("touchend", onTouchEnd);
+    box.addEventListener("touchcancel", onTouchCancel);
+    box.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
     box.addEventListener("wheel", onWheel, { passive: false });
     box.addEventListener("dblclick", onDblClick);
-    box.addEventListener("touchmove", onTouchMove, { passive: false });
+
     return () => {
-      box.removeEventListener("pointerdown", onDown);
-      box.removeEventListener("pointermove", onMove);
-      box.removeEventListener("pointerup", onUp);
-      box.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("gesturestart", stopNativeGesture);
+      document.removeEventListener("gesturechange", stopNativeGesture);
+      box.removeEventListener("touchstart", onTouchStart);
+      box.removeEventListener("touchmove", onTouchMove);
+      box.removeEventListener("touchend", onTouchEnd);
+      box.removeEventListener("touchcancel", onTouchCancel);
+      box.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
       box.removeEventListener("wheel", onWheel);
       box.removeEventListener("dblclick", onDblClick);
-      box.removeEventListener("touchmove", onTouchMove);
     };
-  }, [apply, clamp, metrics, reset, zoomAt]);
+  }, [mounted, apply, clamp, clampWith, metrics, reset, zoomAt]);
 
   const stepZoom = (factor: number) => {
     const m = metrics(viewRef.current.scale);
@@ -333,7 +470,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       <div
         ref={boxRef}
         className="relative flex flex-1 touch-none select-none items-center justify-center overflow-hidden"
-        style={{ touchAction: "none", WebkitTouchCallout: "default", overscrollBehavior: "contain" }}
+        style={{ touchAction: "none", overscrollBehavior: "contain" }}
       >
         <img
           ref={imgRef}
@@ -342,6 +479,9 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
           className="max-h-[68vh] max-w-full rounded-xl shadow-2xl"
           style={{
             transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`,
+            // Чтение ref здесь сознательное: флаг «идёт жест» переключает
+            // анимацию в тот же кадр, когда жест начался/кончился
+            // eslint-disable-next-line react-hooks/refs -- см. комментарий выше
             transition: gesturing.current ? "none" : "transform 0.22s ease-out",
             willChange: "transform",
           }}

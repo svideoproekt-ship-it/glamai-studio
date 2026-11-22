@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Playfair_Display, Manrope } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,6 +14,16 @@ const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
   display: "swap",
 });
+
+// v44.1: зум страницы запрещён (maximum-scale=1) — иначе iOS перехватывает
+// пинч двумя пальцами под собственный «зум страницы», и лупа деталей не
+// получает жест. Увеличение фото делает наша лупа (ZoomViewer).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 export const metadata: Metadata = {
   title: "GlamAI Studio — ИИ-примерка макияжа",

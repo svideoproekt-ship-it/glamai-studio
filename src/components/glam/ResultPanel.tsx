@@ -481,7 +481,16 @@ export function ResultPanel({
           </p>
         </div>
       )}
-      <BeforeAfterSlider before={original ?? result} after={result} alt="Образ GlamAI" />
+      <BeforeAfterSlider
+        before={original ?? result}
+        after={result}
+        alt="Образ GlamAI"
+        onTapPhoto={() => {
+          setZoomFooter(null);
+          setZoomFocus(null);
+          setZoomOpen(true);
+        }}
+      />
 
       {/* v44: лупа деталей — стрелки, подводка и растяжка тонов видны только
           вблизи. Пресет «Глаза крупно» сразу открывает зум на уровень глаз —
@@ -516,8 +525,9 @@ export function ResultPanel({
         </Button>
       </div>
       <p className="mx-auto max-w-md text-center text-xs leading-relaxed text-muted-foreground">
-        Стрелки, подводка и растяжка тонов лучше всего видны вблизи —
-        увеличьте фото двумя пальцами или двойным нажатием.
+        Стрелки, подводка и растяжка тонов лучше всего видны вблизи: нажмите на
+        фото или «Глаза крупно» — откроется лупа. В ней двумя пальцами меняйте
+        масштаб, одним — двигайте фото.
       </p>
 
       {/* Единый блок передачи: без дублей. Первичная кнопка — системное

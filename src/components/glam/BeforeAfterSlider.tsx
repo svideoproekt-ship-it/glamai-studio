@@ -1,17 +1,26 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ChevronsLeftRight } from "lucide-react";
+import { ChevronsLeftRight, ZoomIn } from "lucide-react";
 
 interface BeforeAfterSliderProps {
   before: string;
   after: string;
   alt?: string;
+  /** v44.1: нажатие на фото без перетаскивания — открыть лупу деталей */
+  onTapPhoto?: () => void;
 }
 
-export function BeforeAfterSlider({ before, after, alt = "Макияж" }: BeforeAfterSliderProps) {
+export function BeforeAfterSlider({
+  before,
+  after,
+  alt = "Макияж",
+  onTapPhoto,
+}: BeforeAfterSliderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  // Точка первого касания: отличаем тап (открыть лупу) от перетаскивания шторки
+  const downRef = useRef<{ x: number; y: number } | null>(null);
   const [pos, setPos] = useState(50);
 
   const update = useCallback((clientX: number) => {
@@ -38,17 +47,28 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
           }}
           onPointerDown={(e) => {
             draggingRef.current = true;
+            downRef.current = { x: e.clientX, y: e.clientY };
             containerRef.current?.setPointerCapture(e.pointerId);
-            update(e.clientX);
           }}
           onPointerMove={(e) => {
             if (draggingRef.current) update(e.clientX);
           }}
-          onPointerUp={() => {
+          onPointerUp={(e) => {
+            // Тап без перетаскивания — открываем лупу деталей. Перетаскивание
+            // шторки осталось как было: тянешь — шторка едет, тапнул — лупа.
+            if (downRef.current) {
+              const moved = Math.hypot(
+                e.clientX - downRef.current.x,
+                e.clientY - downRef.current.y,
+              );
+              if (moved < 8) onTapPhoto?.();
+            }
             draggingRef.current = false;
+            downRef.current = null;
           }}
           onPointerCancel={() => {
             draggingRef.current = false;
+            downRef.current = null;
           }}
           className="relative w-full cursor-ew-resize touch-none select-none overflow-hidden rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F6B93B]"
         >
@@ -72,6 +92,12 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
             ПОСЛЕ
           </span>
 
+          {/* v44.1: значок-подсказка — фото открывается в лупе по нажатию */}
+          <span className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-[#04281A]/85 px-2.5 py-1 text-[11px] font-medium text-[#F8F1E1] backdrop-blur-sm">
+            <ZoomIn className="h-3.5 w-3.5" aria-hidden />
+            Лупа
+          </span>
+
           {/* Шторка */}
           <div
             className="pointer-events-none absolute inset-y-0"
@@ -91,7 +117,7 @@ export function BeforeAfterSlider({ before, after, alt = "Макияж" }: Befor
         </div>
       </div>
       <p className="mt-2 text-center text-sm text-muted-foreground">
-        Тяните шторку влево-вправо, чтобы сравнить результат
+        Тяните шторку, чтобы сравнить. Нажмите на фото — откроется лупа.
       </p>
     </div>
   );
