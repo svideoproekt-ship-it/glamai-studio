@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { PLAN_PRICES, planLabel } from "@/lib/plan";
 import { saveImageFile } from "@/lib/download";
 import { payQrPayload, type PayInfo } from "@/lib/pay";
+import { formatImportReport, parseStudioList, type StudioImportReport } from "@/lib/studio-import";
 
 interface AdminUser {
   telegramId: number;
@@ -129,6 +130,10 @@ export default function AdminPage() {
   const [studioUrl, setStudioUrl] = useState("");
   const [studioNote, setStudioNote] = useState("");
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  // Массовое добавление студий (v48)
+  const [importText, setImportText] = useState("");
+  const [importCount, setImportCount] = useState(0);
+  const [importReport, setImportReport] = useState<string | null>(null);
 
   const loadList = useCallback(async () => {
     setError(null);
@@ -205,7 +210,7 @@ export default function AdminPage() {
 
   const act = async (
     body: Record<string, unknown>,
-    okMsg: string | ((data: { untilIso?: string | null; studio?: { name?: string }; bonusTotal?: number }) => string)
+    okMsg: string | ((data: { untilIso?: string | null; studio?: { name?: string }; bonusTotal?: number; report?: StudioImportReport }) => string)
   ) => {
     setBusy(true);
     setError(null);
@@ -225,6 +230,31 @@ export default function AdminPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Массовое добавление студий (v48): список из штурм-файлов — одна кнопка.
+  const runImport = async () => {
+    const parsed = parseStudioList(importText);
+    if (parsed.items.length === 0) {
+      setImportReport(null);
+      setError(parsed.errors[0] ?? "Не нашёл ни одной студии — нужен формат «Название | слаг».");
+      return;
+    }
+    await act(
+      { action: "studio_import", items: parsed.items },
+      (d) => {
+        const report: StudioImportReport =
+          d.report ?? { added: [], updated: [], fixed: [], skipped: [] };
+        setImportReport(formatImportReport(report, parsed.errors));
+        const parts = [
+          `добавлено: ${report.added.length}`,
+          `обновлено: ${report.updated.length}`,
+        ];
+        if (report.fixed.length) parts.push(`слагов починено: ${report.fixed.length}`);
+        if (report.skipped.length) parts.push(`пропущено: ${report.skipped.length}`);
+        return "Готово — " + parts.join(", ") + ". Список студий обновился ниже.";
+      }
+    );
   };
 
   // Выдача по заявке в один клик: ID уже известен (пришёл из paywall по
@@ -601,6 +631,55 @@ export default function AdminPage() {
                 className="mt-2 border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-[#6F4E37]"
                 aria-label="Заметка студии"
               />
+
+              {/* Быстрое добавление списком (v48): все студии штурма за один раз */}
+              <div className="mt-3 rounded-xl border border-[#F8F1E1]/15 bg-[#06301B]/70 p-3">
+                <p className="mb-1 text-sm font-semibold">Быстрое добавление списком</p>
+                <p className="mb-2 text-xs text-[#F8F1E1]/70">
+                  Вставь список из штурм-файлов: по строке «Название | слаг | ссылка записи | заметка»
+                  (после слага всё необязательно) или JSON. Существующие студии обновятся без дублей,
+                  а слаг с приставкой studio-… починится автоматически — ссылки из писем
+                  ?start=studio_… начнут привязывать клиенток.
+                </p>
+                <textarea
+                  value={importText}
+                  onChange={(e) => {
+                    setImportText(e.target.value);
+                    setImportCount(parseStudioList(e.target.value).items.length);
+                  }}
+                  rows={6}
+                  placeholder={"Школа красоты Бьюти Культ | cult-nsk\nАвторская студия Светланы Дунаевой | dunaeva-nsk\nСтудия Alsu Visage | alsu-ekb"}
+                  className="w-full rounded-lg border border-[#6F4E37]/35 bg-[#F8F1E1]/95 p-2 font-mono text-xs text-[#6F4E37]"
+                  aria-label="Список студий для импорта"
+                  data-testid="studio-import-text"
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <Button
+                    className="glam-btn shrink-0"
+                    disabled={busy || !importText.trim()}
+                    onClick={() => void runImport()}
+                    data-testid="studio-import-run"
+                  >
+                    {busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Sparkles className="h-4 w-4" aria-hidden />
+                    )}
+                    Добавить из списка
+                  </Button>
+                  <span className="text-xs text-[#F8F1E1]/60">
+                    {importCount > 0 ? `строк распознано: ${importCount}` : "формат: Название | слаг"}
+                  </span>
+                </div>
+                {importReport && (
+                  <pre
+                    className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-2 text-xs text-[#E7DFC9]"
+                    data-testid="studio-import-report"
+                  >
+                    {importReport}
+                  </pre>
+                )}
+              </div>
 
               {studios.length > 0 && (
                 <div className="mt-4 space-y-2">
