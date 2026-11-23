@@ -11,6 +11,7 @@ import {
   adminStats,
   grantBonus,
   grantPlan,
+  importStudios,
   listPayRequests,
   listStudios,
   listUsers,
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest) {
     bookingUrl?: string;
     note?: string;
     active?: boolean;
+    items?: unknown[];
   };
   const adminSecret = process.env.ADMIN_SECRET?.trim() ?? "";
 
@@ -170,6 +172,34 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "Студия не найдена." }, { status: 404 });
       }
       return NextResponse.json({ ok: true, slug: body.slug, active: body.active !== false });
+    }
+    if (body.action === "studio_import") {
+      // Массовое добавление студий (v48): список строк/JSON из штурм-файлов.
+      const rawItems = Array.isArray(body.items) ? body.items : [];
+      if (rawItems.length === 0) {
+        return NextResponse.json(
+          { ok: false, error: "Список пустой: нужны строки «Название | слаг» или JSON-массив." },
+          { status: 400 }
+        );
+      }
+      if (rawItems.length > 200) {
+        return NextResponse.json(
+          { ok: false, error: "Больше 200 строк за раз не принять — раздели список на части." },
+          { status: 400 }
+        );
+      }
+      const rows: { name: string; slug: string; bookingUrl: string | null; note: string | null }[] = [];
+      for (const it of rawItems) {
+        const o = (it ?? {}) as Record<string, unknown>;
+        rows.push({
+          name: typeof o.name === "string" ? o.name : "",
+          slug: typeof o.slug === "string" ? o.slug : "",
+          bookingUrl: typeof o.bookingUrl === "string" ? o.bookingUrl : null,
+          note: typeof o.note === "string" ? o.note : null,
+        });
+      }
+      const report = await importStudios(rows);
+      return NextResponse.json({ ok: true, report });
     }
     if (body.action === "request_done" || body.action === "request_dismiss") {
       const id = Number(body.id);
