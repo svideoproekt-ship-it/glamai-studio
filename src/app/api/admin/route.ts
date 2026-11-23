@@ -18,6 +18,7 @@ import {
   revokeSubscription,
   setPayRequestStatus,
   setStudioActive,
+  startStats,
   upsertStudio,
 } from "@/lib/store";
 
@@ -40,14 +41,16 @@ export async function GET(req: NextRequest) {
     return unauthorized();
   }
   try {
-    const [users, stats, requests, studios] = await Promise.all([
+    const [users, stats, requests, studios, starts] = await Promise.all([
       listUsers(200),
       adminStats(),
       listPayRequests(20),
       listStudios(100),
+      startStats(12),
     ]);
     // pay — публичные реквизиты оплаты (для QR), requests — заявки на подписку,
-    // studios — студии-партнёры v41. botUsername — для сборки ссылок
+    // studios — студии-партнёры v41, starts — панель открытий v47.
+    // botUsername — для сборки ссылок
     // t.me/<bot>?start=studio_<slug> для кнопки на сайте студии.
     return NextResponse.json({
       ok: true,
@@ -56,6 +59,7 @@ export async function GET(req: NextRequest) {
       pay: getPayInfo(),
       requests,
       studios,
+      starts,
       botUsername: process.env.TELEGRAM_BOT_USERNAME?.trim() ?? "",
     });
   } catch (err) {

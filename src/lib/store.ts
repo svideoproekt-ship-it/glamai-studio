@@ -118,6 +118,21 @@ export function ensureSchema(): Promise<void> {
       await sql`ALTER TABLE glam_users ADD COLUMN IF NOT EXISTS studio_slug TEXT`;
       await sql`ALTER TABLE glam_users ADD COLUMN IF NOT EXISTS bonus_generations INTEGER NOT NULL DEFAULT 0`;
       await sql`CREATE INDEX IF NOT EXISTS glam_users_studio_idx ON glam_users (studio_slug)`;
+      // ---------- v47: панель открытий — каждое открытие мини-приложения ----------
+      await sql`
+        CREATE TABLE IF NOT EXISTS glam_start_events (
+          id          BIGSERIAL PRIMARY KEY,
+          telegram_id BIGINT NOT NULL,
+          username    TEXT,
+          first_name  TEXT,
+          start_param TEXT NOT NULL DEFAULT '',
+          attributed  BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`;
+      await sql`CREATE INDEX IF NOT EXISTS glam_start_events_created_idx
+        ON glam_start_events (created_at)`;
+      await sql`CREATE INDEX IF NOT EXISTS glam_start_events_param_idx
+        ON glam_start_events (start_param, created_at)`;
     })().catch((err) => {
       schemaReady = null; // следующая попытка повторит создание
       throw err;
@@ -381,6 +396,108 @@ export async function adminStats(): Promise<{ total: number; paying: number; gen
     FROM glam_users`;
   const [g] = await sql`SELECT COUNT(*)::int AS total FROM glam_generations`;
   return { total: Number(u?.total ?? 0), paying: Number(u?.paying ?? 0), generations: Number(g?.total ?? 0) };
+}
+
+// ---------- Панель открытий (v47) ----------
+//
+// Воронка штурма: письмо/сообщение ушло → клиентка открыла бота по ссылке
+// с меткой studio_<slug> → дошла до генерации. Раньше был виден только конец
+// цепочки (glam_users), и «никто не пользовался» нельзя было разобрать:
+// ссылки не открывают ИЛИ открывают, но не доходят до примерки. Теперь
+// каждое открытие мини-приложения пишется в glam_start_events — с сырой
+// меткой ссылки, даже если студии с таким слагом ещё нет в базе.
+
+export interface StartEventRow {
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  /** Сырая метка ссылки (studio_…) или пусто, если открыли бота напрямую. */
+  startParam: string;
+  /** true — метка распознана и студия привязана (первое касание). */
+  attributed: boolean;
+  createdAt: Date;
+}
+
+export interface StartParamStat {
+  param: string;
+  opens: number;
+  unique: number;
+  /** Сколько из них реально привязались к студии. */
+  attributed: number;
+}
+
+export interface StartStats {
+  totalOpens: number;
+  uniqueUsers: number;
+  opens7d: number;
+  byParam: StartParamStat[];
+  recent: StartEventRow[];
+}
+
+/** Пишет одно открытие. НИКОГДА не бросает: аналитика не должна ломать вход. */
+export async function logStartEvent(t: {
+  telegramId: number;
+  username?: string;
+  firstName?: string;
+  startParam: string;
+  attributed: boolean;
+}): Promise<void> {
+  try {
+    const sql = getSql();
+    await ensureSchema();
+    await sql`
+      INSERT INTO glam_start_events (telegram_id, username, first_name, start_param, attributed)
+      VALUES (${t.telegramId}, ${t.username?.toLowerCase() ?? null}, ${t.firstName ?? null},
+              ${t.startParam.slice(0, 64)}, ${t.attributed})`;
+  } catch (err) {
+    console.warn("[store] logStartEvent пропущен:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Сводка открытий для блока «Открытия бота» в /admin. */
+export async function startStats(limit = 12): Promise<StartStats> {
+  const sql = getSql();
+  await ensureSchema();
+  const [tot] = await sql`
+    SELECT COUNT(*)::int AS opens, COUNT(DISTINCT telegram_id)::int AS uniq
+    FROM glam_start_events`;
+  const [week] = await sql`
+    SELECT COUNT(*)::int AS opens
+    FROM glam_start_events
+    WHERE created_at > now() - interval '7 days'`;
+  const byParam = await sql`
+    SELECT start_param,
+           COUNT(*)::int AS opens,
+           COUNT(DISTINCT telegram_id)::int AS uniq,
+           COUNT(*) FILTER (WHERE attributed)::int AS attributed
+    FROM glam_start_events
+    GROUP BY start_param
+    ORDER BY opens DESC, start_param
+    LIMIT ${Math.min(20, Math.max(1, limit))}`;
+  const recent = await sql`
+    SELECT telegram_id, username, first_name, start_param, attributed, created_at
+    FROM glam_start_events
+    ORDER BY created_at DESC
+    LIMIT ${Math.min(20, Math.max(1, limit))}`;
+  return {
+    totalOpens: Number(tot?.opens ?? 0),
+    uniqueUsers: Number(tot?.uniq ?? 0),
+    opens7d: Number(week?.opens ?? 0),
+    byParam: byParam.map((r) => ({
+      param: String(r.start_param ?? ""),
+      opens: Number(r.opens),
+      unique: Number(r.uniq),
+      attributed: Number(r.attributed),
+    })),
+    recent: recent.map((r) => ({
+      telegramId: Number(r.telegram_id),
+      username: (r.username as string | null) ?? null,
+      firstName: (r.first_name as string | null) ?? null,
+      startParam: String(r.start_param ?? ""),
+      attributed: Boolean(r.attributed),
+      createdAt: new Date(r.created_at as unknown as string),
+    })),
+  };
 }
 
 // ---------- Заявки на подписку (автоподстановка ID в админку) ----------

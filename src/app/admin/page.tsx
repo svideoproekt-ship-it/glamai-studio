@@ -44,6 +44,30 @@ interface Stats {
   generations: number;
 }
 
+interface StartParamRow {
+  param: string;
+  opens: number;
+  unique: number;
+  attributed: number;
+}
+
+interface StartEventRow {
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  startParam: string;
+  attributed: boolean;
+  createdAt: string;
+}
+
+interface StartStats {
+  totalOpens: number;
+  uniqueUsers: number;
+  opens7d: number;
+  byParam: StartParamRow[];
+  recent: StartEventRow[];
+}
+
 interface PayRequest {
   id: number;
   telegramId: number;
@@ -90,6 +114,7 @@ export default function AdminPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [starts, setStarts] = useState<StartStats | null>(null);
   const [pay, setPay] = useState<PayInfo | null>(null);
   const [requests, setRequests] = useState<PayRequest[]>([]);
   const [studios, setStudios] = useState<StudioRow[]>([]);
@@ -117,6 +142,7 @@ export default function AdminPage() {
       if (!data.ok) throw new Error(data.error ?? "Не удалось загрузить список");
       setUsers(data.users ?? []);
       setStats(data.stats ?? null);
+      setStarts(data.starts ?? null);
       setPay(data.pay ?? null);
       setRequests(data.requests ?? []);
       setStudios(data.studios ?? []);
@@ -319,6 +345,80 @@ export default function AdminPage() {
                   <p className="text-xs text-[#F8F1E1]/70">генераций всего</p>
                 </div>
               </div>
+            )}
+
+            {starts && (
+              <section className="green-card mb-5 rounded-3xl p-5" data-testid="starts-panel">
+                <h2 className="mb-1 font-serif text-lg font-bold">Открытия бота</h2>
+                <p className="mb-3 text-sm text-[#F8F1E1]/75">
+                  Каждое открытие приложения пишется в базу. Открытий нет — ссылки из писем не
+                  открывают; открытия есть, а генераций нет — клиентка не доходит до примерки.
+                </p>
+                <div className="mb-4 grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <p className="font-serif text-2xl font-bold">{starts.totalOpens}</p>
+                    <p className="text-xs text-[#F8F1E1]/70">открытий всего</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <p className="font-serif text-2xl font-bold">{starts.uniqueUsers}</p>
+                    <p className="text-xs text-[#F8F1E1]/70">уникальных людей</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <p className="font-serif text-2xl font-bold">{starts.opens7d}</p>
+                    <p className="text-xs text-[#F8F1E1]/70">за последние 7 дней</p>
+                  </div>
+                </div>
+                {starts.byParam.length > 0 && (
+                  <div className="mb-4">
+                    <p className="mb-2 text-sm font-semibold">Откуда приходят (метки ссылок):</p>
+                    <ul className="space-y-1 text-sm">
+                      {starts.byParam.map((p) => (
+                        <li
+                          key={p.param || "direct"}
+                          className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-white/5 px-3 py-1.5"
+                        >
+                          <span className="font-mono text-xs text-[#F6B93B]">
+                            {p.param === "" ? "без метки — открыли бота напрямую" : p.param}
+                          </span>
+                          <span className="text-xs text-[#F8F1E1]/85">
+                            {p.opens} откр. · {p.unique} чел.
+                            {p.attributed > 0 ? ` · привязано ${p.attributed}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-[#F8F1E1]/60">
+                      Если у метки studio_… нет ни одного «привязано» — студии с таким слагом ещё
+                      нет в списке «Студии» ниже. Создай её с тем же слагом — привязка начнёт
+                      работать, и у клиенток появится кнопка «Записаться».
+                    </p>
+                  </div>
+                )}
+                {starts.recent.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-sm font-semibold">Последние открытия:</p>
+                    <ul className="space-y-1 text-sm text-[#F8F1E1]/85">
+                      {starts.recent.map((e, i) => {
+                        const who = e.firstName || (e.username ? `@${e.username}` : `id ${e.telegramId}`);
+                        const notLinked =
+                          e.startParam.startsWith("studio_") && !e.attributed
+                            ? " · студия не привязана"
+                            : "";
+                        return (
+                          <li key={`${e.telegramId}-${e.createdAt}-${i}`}>
+                            {fmtDateTime(e.createdAt)} — {who}
+                            {" · "}
+                            <span className="font-mono text-xs">
+                              {e.startParam === "" ? "без метки" : e.startParam}
+                            </span>
+                            {notLinked}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </section>
             )}
 
             <section className="green-card mb-5 rounded-3xl p-5">

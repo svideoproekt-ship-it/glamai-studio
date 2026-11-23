@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, SESSION_TTL_SEC, signSession, verifyMiniAppInitData } from "@/lib/auth";
-import { attachStudioBySlug, upsertUser } from "@/lib/store";
+import { attachStudioBySlug, logStartEvent, upsertUser } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -69,12 +69,24 @@ export async function POST(req: NextRequest) {
   try {
     await upsertUser({ id: data.id, username: data.username, firstName: data.firstName });
     // Атрибуция студии-источника: только первое касание, только активная студия.
+    let attributed = false;
     if (/^studio_[a-z0-9][a-z0-9-]{0,39}$/.test(startParam)) {
       const attached = await attachStudioBySlug(data.id, startParam.slice("studio_".length));
+      attributed = attached;
       if (attached) {
         console.log(`[auth/miniapp] атрибуция: ${data.id} → ${startParam}`);
       }
     }
+    // Панель открытий (v47): пишем КАЖДОЕ открытие — с сырой меткой, даже если
+    // студии с таким слагом ещё нет в базе (сигнал клика не теряется).
+    // logStartEvent никогда не бросает — вход остаётся на месте при любой ошибке.
+    await logStartEvent({
+      telegramId: data.id,
+      username: data.username,
+      firstName: data.firstName,
+      startParam,
+      attributed,
+    });
   } catch (err) {
     console.error("[auth/miniapp] ошибка БД:", err instanceof Error ? err.message : err);
     return NextResponse.json(
