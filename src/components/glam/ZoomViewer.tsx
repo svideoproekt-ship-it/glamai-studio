@@ -4,29 +4,36 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Maximize, Minus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-// v44 (доработка 44.1): лупа для деталей макияжа. Стрелки, подводка и
-// растяжка тонов на портрете шириной с экран — примерно 1 пиксель: без
-// увеличения их просто не видно. Этот просмотрщик даёт честный зум до 4x
-// (нативное разрешение картинки — около 1000 px по ширине), поэтому «две
-// стрелки» реально рассмотреть: мастер показывает детали клиентке, школа —
-// ученицам.
+// v45: лупа для деталей макияжа. Стрелки, подводка и растяжка тонов на
+// портрете шириной с экран — примерно 1 пиксель: без увеличения их просто
+// не видно. Этот просмотрщик даёт честный зум до 4x (нативное разрешение
+// картинки — около 1000 px по ширине), поэтому «две стрелки» реально
+// рассмотреть: мастер показывает детали клиентке, школа — ученицам.
 //
-// Управление:
-//   • два пальца — масштаб (пинч), один палец — передвинуть фото;
-//   • двойное нажатие — приблизить к точке нажатия / вернуть как было;
+// Управление (v45 — пинч двумя пальцами УБРАН):
+//   • двойное нажатие — приблизить к точке нажатия (×2,8) / вернуть как
+//     было. Главный жест: он стабильно работает во всех WebView Telegram,
+//     в отличие от пинча — два раунда правок (44.0 на Pointer Events,
+//     44.1 на сырых touch-событиях) не сделали двухпальцевый зум
+//     надёжным, поэтому в v45 мы от него отказались совсем;
+//   • один палец — передвинуть фото (когда оно увеличено);
+//   • кнопки +/−/сброс внизу — точный масштаб до ×4;
 //   • на компьютере — колесо мыши, двойной клик, перетаскивание;
-//   • кнопки +/−/сброс внизу — для тех, кому жесты неудобны;
 //   • системная кнопка «Назад» в шапке Telegram тоже закрывает лупу.
 //
-// Почему жесты построены на сырых touch-событиях (44.1): в части WebView
-// Telegram Pointer Events отдают только первый палец, а iOS перехватывает
-// пинч под «зум страницы». Touch-события работают во всех WebView, зум
-// страницы блокируем meta viewport + перехватом gesturestart, а свайпы
-// Telegram на время лупы отключаем (disableVerticalSwipes).
+// Технические заметки: touch-события с passive:false (чтобы WebView не
+// перехватил касания), meta viewport maximum-scale=1 глушит «зум страницы»,
+// свайпы Telegram на время лупы отключаем (disableVerticalSwipes). Второй
+// палец игнорируется безвредно: он не вызывает ни зума, ни сброса — фото
+// продолжает двигать первый палец.
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 const EYE_DEFAULT = { scale: 2.8, fx: 0.5, fy: 0.33 };
+/** Двойное нажатие приближает к этому масштабу (как пресет «Глаза крупно») */
+const TAP_ZOOM = 2.8;
+/** Движение пальца больше этого порога — панорама, а не тап */
+const PAN_SLOP = 12;
 
 export interface ZoomFocus {
   scale: number;
@@ -67,7 +74,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
   // Держим текущее значение в ref — обработчикам жестов не нужны пересоздания
   const viewRef = useRef<View>(IDENTITY);
   const [view, setView] = useState<View>(IDENTITY);
-  // Во время жеста анимация отключена, чтобы пинч не «резиновал»
+  // Во время жеста анимация отключена, чтобы панорама не «резиновала»
   const gesturing = useRef(false);
   // v44-фикс: панель результата живёт внутри блока с анимацией .reveal —
   // её постоянный transform делает position: fixed «привязанным» к родителю,
@@ -181,7 +188,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
   }, [onClose]);
 
   // Telegram: на время лупы отключаем вертикальные свайпы (иначе свайп
-  // пальцем сворачивает мини-апп посреди пинча) и подключаем системную
+  // пальцем сворачивает мини-апп посреди панорамы) и подключаем системную
   // кнопку «Назад» — она закрывает лупу. Всё в try/catch: старые клиенты
   // этих методов не знают, и это не страшно.
   useEffect(() => {
@@ -222,22 +229,24 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
     };
   }, [mounted, onClose]);
 
-  // Жесты: пальцы — сырые touch-события, мышь — mousedown/wheel/dblclick.
+  // Жесты v45: один палец — панорама, двойное нажатие — зум. Пинча нет.
   // Нативные слушатели с passive:false, иначе браузер перехватит касания.
-  // ВАЖНО (44.1): эффект должен ждать mounted! До портала boxRef пуст,
-  // и слушатели молча не вешались — пинч не работал ни на одном устройстве.
+  // ВАЖНО: эффект должен ждать mounted! До портала boxRef пуст, и слушатели
+  // молча не вешались.
   useEffect(() => {
     if (!mounted) return;
     const box = boxRef.current;
     if (!box) return;
 
+    // Позиции всех активных касаний внутри контейнера
     const touches = new Map<number, { x: number; y: number }>();
-    let pinchStartDist = 0;
-    let pinchStartScale = 1;
-    // Базовые размеры фиксируем на старте жеста: посреди пинча React может
-    // ещё не перерисовать картинку, и live-замер даст дрожание якоря
-    let gestureBase: Base | null = null;
+    // Какой палец сейчас двигает фото (первый коснувшийся)
+    let panId: number | null = null;
     let panLast: { x: number; y: number } | null = null;
+    // Где палец коснулся в начале жеста — чтобы отличить тап от панорамы
+    let panStart: { x: number; y: number } | null = null;
+    // В жесте участвовало два и больше пальцев — тапом не считается
+    let multiTouch = false;
     let lastTap = { time: 0, x: 0, y: 0 };
     let lastTouchAt = 0;
     let mousePan: { x: number; y: number } | null = null;
@@ -245,21 +254,6 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
     const rel = (clientX: number, clientY: number) => {
       const r = box.getBoundingClientRect();
       return { x: clientX - r.left, y: clientY - r.top };
-    };
-
-    const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
-      Math.hypot(a.x - b.x, a.y - b.y);
-
-    /** Зум вокруг точки mid к целевому масштабу target (внутри жеста) */
-    const pinchTo = (mid: { x: number; y: number }, target: number) => {
-      const base = gestureBase;
-      if (!base) return;
-      const v = viewRef.current;
-      const cl = Math.min(MAX_SCALE, Math.max(MIN_SCALE, target));
-      // координаты точки фото (относительно центра) под серединой пальцев
-      const x = (mid.x - base.W / 2 - v.tx) / v.scale;
-      const y = (mid.y - base.H / 2 - v.ty) / v.scale;
-      apply(clampWith(base, cl, mid.x - base.W / 2 - x * cl, mid.y - base.H / 2 - y * cl));
     };
 
     const haptic = () => {
@@ -280,7 +274,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       if (now - lastTap.time < 320 && moved < 30) {
         const v = viewRef.current;
         if (v.scale > 1.25) reset();
-        else zoomAt(p.x, p.y, 2.5);
+        else zoomAt(p.x, p.y, TAP_ZOOM);
         haptic();
         lastTap = { time: 0, x: 0, y: 0 };
       } else {
@@ -293,28 +287,20 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       lastTouchAt = Date.now();
       gesturing.current = true;
       for (const t of Array.from(e.changedTouches)) {
-        touches.set(t.identifier, rel(t.clientX, t.clientY));
-      }
-      if (touches.size >= 2) {
-        const [a, b] = [...touches.values()].slice(0, 2);
-        const img = imgRef.current;
-        const r = img?.getBoundingClientRect();
-        if (img && r && r.width > 0) {
-          gestureBase = {
-            bw: r.width / viewRef.current.scale,
-            bh: r.height / viewRef.current.scale,
-            W: box.clientWidth,
-            H: box.clientHeight,
-          };
+        const p = rel(t.clientX, t.clientY);
+        touches.set(t.identifier, p);
+        if (panId === null) {
+          // первый палец — он двигает фото
+          panId = t.identifier;
+          panLast = p;
+          panStart = p;
         } else {
-          gestureBase = metrics(viewRef.current.scale);
+          // второй палец: пинча в v45 нет — только помечаем жест
+          // «многопальцевым» (он не сработает как тап) и спокойно
+          // продолжаем панораму первым пальцем
+          multiTouch = true;
+          lastTap = { time: 0, x: 0, y: 0 };
         }
-        pinchStartDist = dist(a, b);
-        pinchStartScale = viewRef.current.scale;
-        panLast = null;
-        lastTap = { time: 0, x: 0, y: 0 }; // пинч сбрасывает счётчик тапов
-      } else if (touches.size === 1) {
-        panLast = [...touches.values()][0];
       }
     };
 
@@ -324,39 +310,52 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       for (const t of Array.from(e.changedTouches)) {
         if (touches.has(t.identifier)) touches.set(t.identifier, rel(t.clientX, t.clientY));
       }
-      if (touches.size >= 2 && pinchStartDist > 0) {
-        const [a, b] = [...touches.values()].slice(0, 2);
-        const d = dist(a, b);
-        if (d > 0) {
-          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-          pinchTo(mid, pinchStartScale * (d / pinchStartDist));
-        }
-        return;
-      }
-      if (panLast && touches.size === 1) {
-        const p = [...touches.values()][0];
-        const v = viewRef.current;
-        const dx = p.x - panLast.x;
-        const dy = p.y - panLast.y;
-        panLast = p;
-        apply(clamp(v.scale, v.scale, v.tx + dx, v.ty + dy));
-      }
+      if (panId === null || !panLast) return;
+      const p = touches.get(panId);
+      if (!p) return;
+      const v = viewRef.current;
+      const dx = p.x - panLast.x;
+      const dy = p.y - panLast.y;
+      panLast = p;
+      apply(clamp(v.scale, v.scale, v.tx + dx, v.ty + dy));
     };
 
     const finishTouch = (e: TouchEvent, isCancel: boolean) => {
-      const ended = Array.from(e.changedTouches).map((t) => rel(t.clientX, t.clientY));
-      for (const t of Array.from(e.changedTouches)) touches.delete(t.identifier);
+      const ended = Array.from(e.changedTouches);
+      const wasPan = panId !== null && ended.some((t) => t.identifier === panId);
+      for (const t of ended) touches.delete(t.identifier);
+
+      if (wasPan) {
+        // палец, который двигал фото, убрали
+        panId = null;
+        panLast = null;
+        if (touches.size === 1) {
+          // остался второй палец — панораму подхватывает он, без прыжка
+          const [id] = [...touches.keys()];
+          panId = id;
+          panLast = touches.get(id)!;
+          panStart = panLast;
+        }
+      }
+
       if (touches.size === 0) {
         gesturing.current = false;
-        panLast = null;
-        pinchStartDist = 0;
-        gestureBase = null;
-        if (!isCancel && ended.length > 0) doubleTap(ended[0]);
-      } else if (touches.size === 1) {
-        // из пинча остался один палец — панорама с его текущего положения
-        pinchStartDist = 0;
-        gestureBase = null;
-        panLast = [...touches.values()][0];
+        // Тап засчитываем только если: палец не двигался заметно (иначе это
+        // панорама), пальцев был один (двойной тап двумя пальцами — не тап)
+        if (!isCancel && !multiTouch && panStart && ended.length === 1) {
+          const t = ended[0];
+          const p = rel(t.clientX, t.clientY);
+          const dragged = Math.hypot(p.x - panStart.x, p.y - panStart.y) > PAN_SLOP;
+          if (dragged) {
+            // панорама разрывает счёт тапов: следующий одиночный тап
+            // не склеится с тапом до панорамы
+            lastTap = { time: 0, x: 0, y: 0 };
+          } else {
+            doubleTap(p);
+          }
+        }
+        multiTouch = false;
+        panStart = null;
       }
     };
 
@@ -397,11 +396,12 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       const r = box.getBoundingClientRect();
       const v = viewRef.current;
       if (v.scale > 1.25) reset();
-      else zoomAt(e.clientX - r.left, e.clientY - r.top, 2.5);
+      else zoomAt(e.clientX - r.left, e.clientY - r.top, TAP_ZOOM);
     };
 
-    // iOS: нативный «зум страницы» двумя пальцами перехватывает жест ещё до
-    // наших событий — глушим его на всё время лупы
+    // iOS: нативный «зум страницы» перехватывает жесты ещё до наших событий —
+    // глушим его на всё время лупы (сам пинч мы больше не используем, но
+    // страница не должна дёргаться, если пользователь всё же зажмёт пальцы)
     const stopNativeGesture = (e: Event) => e.preventDefault();
     document.addEventListener("gesturestart", stopNativeGesture, { passive: false });
     document.addEventListener("gesturechange", stopNativeGesture, { passive: false });
@@ -490,46 +490,47 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
         />
       </div>
 
-      {/* Кнопки масштаба: для тех, кому жесты неудобны */}
-      <div className="flex items-center justify-center gap-2 px-4 pb-2">
+      {/* Кнопки масштаба: точная подстройка — теперь главный способ
+          плавно менять масштаб на телефоне (пинч убран) */}
+      <div className="flex items-center justify-center gap-3 px-4 pb-2">
         <Button
           variant="outline"
           size="icon"
-          className="h-10 w-10 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
+          className="h-11 w-11 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
           aria-label="Уменьшить"
           onClick={() => stepZoom(1 / 1.4)}
           disabled={!scaled}
           data-testid="zoom-out"
         >
-          <Minus className="h-4 w-4" aria-hidden />
+          <Minus className="h-5 w-5" aria-hidden />
         </Button>
         <Button
           variant="outline"
           size="icon"
-          className="h-10 w-10 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
+          className="h-11 w-11 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
           aria-label="Сбросить масштаб"
           onClick={reset}
           disabled={!scaled}
           data-testid="zoom-reset"
         >
-          <Maximize className="h-4 w-4" aria-hidden />
+          <Maximize className="h-5 w-5" aria-hidden />
         </Button>
         <Button
           variant="outline"
           size="icon"
-          className="h-10 w-10 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
+          className="h-11 w-11 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
           aria-label="Увеличить"
           onClick={() => stepZoom(1.4)}
           disabled={view.scale >= MAX_SCALE - 0.01}
           data-testid="zoom-in"
         >
-          <Plus className="h-4 w-4" aria-hidden />
+          <Plus className="h-5 w-5" aria-hidden />
         </Button>
       </div>
 
       <p className="px-6 pb-3 text-center text-xs leading-relaxed text-[#F8F1E1]/70">
-        Двумя пальцами — масштаб, одним — передвинуть. Двойное нажатие —
-        приблизить место касания. {footer ? footer : ""}
+        Двойное нажатие — приблизить, ещё раз — вернуть. Один палец —
+        передвинуть. Кнопки + и − — точный масштаб. {footer ? footer : ""}
       </p>
       {footer && <div className="pb-4" />}
     </div>,
