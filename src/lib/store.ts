@@ -10,6 +10,7 @@
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
 import { checkAllowance, currentYm, type UserPlanState } from "@/lib/plan";
+import { cleanStudioSlug, type StudioImportReport } from "@/lib/studio-import";
 
 export interface UserRow {
   telegramId: number;
@@ -710,6 +711,90 @@ export async function upsertStudio(s: {
       note = EXCLUDED.note
     RETURNING slug, name, booking_url, note, active`;
   return rows[0] ? toStudio(rows[0]) : null;
+}
+
+// ---------- v48: массовое добавление студий списком ----------
+
+export interface StudioImportInput {
+  name: string;
+  slug: string;
+  bookingUrl?: string | null;
+  note?: string | null;
+}
+
+/**
+ * Массовый импорт студий (v48). Для каждой строки:
+ * 1) чистим слаг (снимаем @ и приставку studio-…);
+ * 2) если в базе запись со старым слагом «studio-<слаг>» (ручной ввод с
+ *    приставкой) — переименовываем её в правильный слаг: ссылки писем
+ *    ?start=studio_<слаг> ищут слаг БЕЗ приставки, поэтому такая запись
+ *    никогда не привязывала клиенток. Привязки переезжают вместе со слагом;
+ * 3) иначе — создаём или обновляем студию. Ссылка записи и заметка
+ *    перезаписываются только если в списке они заполнены — уже введённые
+ *    вручную данные не теряются.
+ * Ни одна строка не роняет всю пачку: ошибки собираются в отчёт.
+ */
+export async function importStudios(rows: StudioImportInput[]): Promise<StudioImportReport> {
+  const sql = getSql();
+  await ensureSchema();
+  const report: StudioImportReport = { added: [], updated: [], fixed: [], skipped: [] };
+
+  for (const row of rows) {
+    const name = String(row.name ?? "").trim().slice(0, 80);
+    const slug = cleanStudioSlug(String(row.slug ?? ""));
+    if (!slug) {
+      report.skipped.push({
+        slug: String(row.slug ?? "").slice(0, 40),
+        reason: "слаг пустой или из недопустимых символов",
+      });
+      continue;
+    }
+    if (!name) {
+      report.skipped.push({ slug, reason: "нет названия студии" });
+      continue;
+    }
+    const bookingRaw = String(row.bookingUrl ?? "").trim();
+    const bookingUrl = /^https?:\/\/\S{4,300}$/i.test(bookingRaw) ? bookingRaw.slice(0, 300) : null;
+    const noteRaw = String(row.note ?? "").trim();
+    const note = noteRaw ? noteRaw.slice(0, 200) : null;
+
+    const existing = await sql`
+      SELECT slug FROM glam_studios WHERE slug = ${slug} LIMIT 1`;
+    if (existing.length === 0) {
+      const legacySlug = `studio-${slug}`;
+      const legacy = await sql`
+        SELECT slug FROM glam_studios WHERE slug = ${legacySlug} LIMIT 1`;
+      if (legacy.length > 0) {
+        await sql`
+          UPDATE glam_studios
+          SET slug = ${slug},
+              name = ${name},
+              booking_url = COALESCE(${bookingUrl}, booking_url),
+              note = COALESCE(${note}, note)
+          WHERE slug = ${legacySlug}`;
+        await sql`
+          UPDATE glam_users SET studio_slug = ${slug} WHERE studio_slug = ${legacySlug}`;
+        report.fixed.push({ slug, name, oldSlug: legacySlug });
+        continue;
+      }
+    }
+
+    const res = await sql`
+      INSERT INTO glam_studios (slug, name, booking_url, note)
+      VALUES (${slug}, ${name}, ${bookingUrl}, ${note})
+      ON CONFLICT (slug) DO UPDATE SET
+        name = EXCLUDED.name,
+        booking_url = COALESCE(EXCLUDED.booking_url, glam_studios.booking_url),
+        note = COALESCE(EXCLUDED.note, glam_studios.note)
+      RETURNING slug, name`;
+    if (res[0]) {
+      (existing.length > 0 ? report.updated : report.added).push({
+        slug: String(res[0].slug),
+        name: String(res[0].name),
+      });
+    }
+  }
+  return report;
 }
 
 /** Список студий для админки — с числом приведённых пользователей. */
