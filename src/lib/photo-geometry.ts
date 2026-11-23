@@ -184,3 +184,164 @@ export async function cropBack(resultBase64: string, geom: PadGeometry): Promise
     .toBuffer();
   return out.toString("base64");
 }
+
+/* ------------------------------------------------------------------ */
+/*  v1.14.0: срез ЧЁРНЫХ полей-«письма» с результата модели            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ПРОБЛЕМА (заметил пользователь на живом телефоне): на выходном фото
+ * чёрные прямоугольники сверху и снизу, а «до/после» в слайдере не
+ * совпадают. Причина: шлюз/модель в части случаев игнорирует size или
+ * отдаёт картинку в своей категории, добивая исходник до рамки ЧЁРНЫМИ
+ * полями (портретное фото в более широком кадре — поля сверху и снизу).
+ * cropBack тут бессилен: он срезает только СВОИ поля размывки по
+ * известной геометрии, а модельные поля приходят другого размера.
+ *
+ * РЕШЕНИЕ: ищем у результата сплошные равномерно-чёрные полосы по краям
+ * и срезаем их — но ТОЛЬКО если срез возвращает пропорции к пропорциям
+ * ИСХОДНОГО фото клиента. Тёмный фон живой фотографии (шторы, ночной
+ * клуб, чёрная одежда на весь кадр) не бывает равномерно нулевым: шум
+ * JPEG, блики и детали дают яркость выше порога, поэтому реальное фото
+ * функция не трогает.
+ */
+
+/** Порог «почти чёрного» для ОДНОГО пикселя полосы (0-255, грейскейл). */
+const BAR_PIXEL_MAX = 32;
+/** Порог средней яркости полосы: у чистого чёрного она около нуля. */
+const BAR_MEAN_MAX = 8;
+/** Полоса короче 2% стороны — не полоса, а шум по краю. */
+const MIN_BAR_FRACTION = 0.02;
+/** После среза должно оставаться минимум 55% каждой стороны. */
+const KEEP_FRACTION = 0.55;
+
+export interface TrimResult {
+  base64: string;
+  /** Были ли срезаны поля. */
+  trimmed: boolean;
+  /** Что нашлось/почему не режем — для журнала. */
+  detail: string;
+}
+
+/** Пропорции фото из data URL (0, если прочитать не удалось). */
+export async function dataUrlRatio(dataUrl: string): Promise<number> {
+  try {
+    const m = /^data:image\/(?:png|jpe?g|webp);base64,([\s\S]+)$/i.exec(dataUrl.trim());
+    if (!m) return 0;
+    const meta = await sharp(Buffer.from(m[1], "base64")).metadata();
+    if (!meta.width || !meta.height) return 0;
+    return meta.width / meta.height;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Срезает равномерно-чёрные поля по краям картинки (base64 без data-префикса,
+ * как возвращает cropBack). expectedRatio — пропорции исходного фото клиента
+ * (ширина/высота); 0 означает «пропорции неизвестны» — тогда режем любые
+ * обнаруженные полосы. Возвращает base64 (JPEG) — исходный буфер, если резать
+ * нечего или срез небезопасен.
+ */
+export async function trimLetterbox(resultBase64: string, expectedRatio: number): Promise<TrimResult> {
+  const src = Buffer.from(resultBase64, "base64");
+  const meta = await sharp(src).metadata();
+  const w = meta.width ?? 0;
+  const h = meta.height ?? 0;
+  if (!w || !h) return { base64: resultBase64, trimmed: false, detail: "нет размеров" };
+
+  const { data, info } = await sharp(src).greyscale().raw().toBuffer({ resolveWithObject: true });
+  const gw = info.width;
+  const gh = info.height;
+  if (!gw || !gh) return { base64: resultBase64, trimmed: false, detail: "нет размеров" };
+
+  // Максимум и среднее по каждой строке и столбцу: у полосы и максимум
+  // почти нулевой, и среднее — по всему краю, а не по отдельным пикселям
+  const rowMax = new Float64Array(gh);
+  const rowMean = new Float64Array(gh);
+  for (let y = 0; y < gh; y++) {
+    let mx = 0;
+    let sum = 0;
+    const off = y * gw;
+    for (let x = 0; x < gw; x++) {
+      const v = data[off + x];
+      if (v > mx) mx = v;
+      sum += v;
+    }
+    rowMax[y] = mx;
+    rowMean[y] = sum / gw;
+  }
+  const colMax = new Float64Array(gw);
+  const colMean = new Float64Array(gw);
+  for (let x = 0; x < gw; x++) {
+    let mx = 0;
+    let sum = 0;
+    for (let y = 0; y < gh; y++) {
+      const v = data[y * gw + x];
+      if (v > mx) mx = v;
+      sum += v;
+    }
+    colMax[x] = mx;
+    colMean[x] = sum / gh;
+  }
+
+  const isBarRow = (y: number) => rowMax[y] <= BAR_PIXEL_MAX && rowMean[y] <= BAR_MEAN_MAX;
+  const isBarCol = (x: number) => colMax[x] <= BAR_PIXEL_MAX && colMean[x] <= BAR_MEAN_MAX;
+
+  let top = 0;
+  while (top < gh && isBarRow(top)) top++;
+  let bottom = 0;
+  while (bottom < gh && isBarRow(gh - 1 - bottom)) bottom++;
+  let left = 0;
+  while (left < gw && isBarCol(left)) left++;
+  let right = 0;
+  while (right < gw && isBarCol(gw - 1 - right)) right++;
+
+  // Короткие тёмные кромки по краю — это виньетка/шум, а не «письмо»
+  const minRowBar = Math.max(3, Math.floor(gh * MIN_BAR_FRACTION));
+  const minColBar = Math.max(3, Math.floor(gw * MIN_BAR_FRACTION));
+  if (top < minRowBar) top = 0;
+  if (bottom < minRowBar) bottom = 0;
+  if (left < minColBar) left = 0;
+  if (right < minColBar) right = 0;
+
+  const newW = gw - left - right;
+  const newH = gh - top - bottom;
+  if (newW === gw && newH === gh) {
+    return { base64: resultBase64, trimmed: false, detail: "чёрных полей нет" };
+  }
+  // Срезали бы больше половины стороны — это не поля, это тёмное фото: не режем
+  if (newW < gw * KEEP_FRACTION || newH < gh * KEEP_FRACTION) {
+    return {
+      base64: resultBase64,
+      trimmed: false,
+      detail: `полосы слишком велики (T${top}/B${bottom}/L${left}/R${right}) — не режем`,
+    };
+  }
+
+  // Срез должен приближать пропорции к исходным — иначе перед нами просто
+  // тёмное по краям фото, и тогда резать нельзя
+  if (Number.isFinite(expectedRatio) && expectedRatio > 0) {
+    const arBefore = gw / gh;
+    const arAfter = newW / newH;
+    const missBefore = Math.abs(arBefore - expectedRatio) / expectedRatio;
+    const missAfter = Math.abs(arAfter - expectedRatio) / expectedRatio;
+    if (missAfter >= missBefore) {
+      return {
+        base64: resultBase64,
+        trimmed: false,
+        detail: `срез не приближает пропорции (${arBefore.toFixed(3)}→${arAfter.toFixed(3)}, ждали ${expectedRatio.toFixed(3)})`,
+      };
+    }
+  }
+
+  const out = await sharp(src)
+    .extract({ left, top, width: newW, height: newH })
+    .jpeg({ quality: 95 })
+    .toBuffer();
+  return {
+    base64: out.toString("base64"),
+    trimmed: true,
+    detail: `срезано T${top}/B${bottom}/L${left}/R${right} → ${newW}x${newH}`,
+  };
+}
