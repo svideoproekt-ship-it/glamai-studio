@@ -9,8 +9,9 @@
 
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
-import { checkAllowance, currentYm, type UserPlanState } from "@/lib/plan";
+import { checkAllowance, currentYm, TRIAL_LIMIT, type UserPlanState } from "@/lib/plan";
 import { cleanStudioSlug, type StudioImportReport } from "@/lib/studio-import";
+import { STUDIO_TRIAL_BONUS, type PackId } from "@/lib/tariffs";
 
 export interface UserRow {
   telegramId: number;
@@ -25,6 +26,13 @@ export interface UserRow {
   studioSlug: string | null;
   /** Бонусные бесплатные генерации (добор «+5» — v41). */
   bonusGenerations: number;
+  /** v49: баланс КУПЛЕННЫХ генераций (Stars-пакеты и поштучные).
+   *  Расходуется после бесплатных, срока нет. */
+  paidGenerations: number;
+  /** v49: когда пользователю уже отправляли напоминание (чтобы не спамить). */
+  reminderSentAt: Date | null;
+  /** v49: язык приложения Telegram (ru/en/de/fr) — на нём пишем webhook/cron. */
+  languageCode: string | null;
   createdAt: Date;
   lastSeenAt: Date;
 }
@@ -134,6 +142,34 @@ export function ensureSchema(): Promise<void> {
         ON glam_start_events (created_at)`;
       await sql`CREATE INDEX IF NOT EXISTS glam_start_events_param_idx
         ON glam_start_events (start_param, created_at)`;
+      // ---------- v49: автоприём платежей (Telegram Stars) и баланс ----------
+      await sql`ALTER TABLE glam_users
+        ADD COLUMN IF NOT EXISTS paid_generations INTEGER NOT NULL DEFAULT 0`;
+      await sql`ALTER TABLE glam_users
+        ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ`;
+      // v49 (мультиязычность): язык приложения Telegram — на нём шлём
+      // благодарность об оплате и напоминания замершим.
+      await sql`ALTER TABLE glam_users
+        ADD COLUMN IF NOT EXISTS language_code TEXT`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS glam_payments (
+          id           BIGSERIAL PRIMARY KEY,
+          telegram_id  BIGINT NOT NULL,
+          pack         TEXT NOT NULL,
+          generations  INTEGER NOT NULL,
+          stars        INTEGER NOT NULL,
+          rub          NUMERIC(10, 2) NOT NULL DEFAULT 0,
+          charge_id    TEXT NOT NULL UNIQUE,
+          created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`;
+      await sql`CREATE INDEX IF NOT EXISTS glam_payments_user_idx
+        ON glam_payments (telegram_id, created_at)`;
+      // Переход на модель «1 бесплатно + 5 у клиентов студии»: тем, кто пришёл
+      // от студии, но бонуса ещё не получал, доначисляем +4 — обещание «5
+      // бесплатных примерок» продолжает работать и после обновления.
+      await sql`UPDATE glam_users SET bonus_generations = ${STUDIO_TRIAL_BONUS}
+        WHERE studio_slug IS NOT NULL AND bonus_generations = 0
+          AND plan = 'trial'`;
     })().catch((err) => {
       schemaReady = null; // следующая попытка повторит создание
       throw err;
@@ -151,6 +187,7 @@ export function toState(r: {
   monthlyResetYm?: string | null;
   subscriptionUntil?: Date | string | null;
   bonusGenerations?: number;
+  paidGenerations?: number;
 }): UserPlanState {
   return {
     plan: r.plan,
@@ -164,6 +201,7 @@ export function toState(r: {
           ? new Date(r.subscriptionUntil)
           : null,
     bonusGenerations: Number(r.bonusGenerations ?? 0),
+    paidGenerations: Number(r.paidGenerations ?? 0),
   };
 }
 
@@ -179,6 +217,9 @@ function toRow(r: Record<string, unknown>): UserRow {
     subscriptionUntil: (r.subscription_until as Date | null) ?? null,
     studioSlug: (r.studio_slug as string | null) ?? null,
     bonusGenerations: Number(r.bonus_generations ?? 0),
+    paidGenerations: Number(r.paid_generations ?? 0),
+    reminderSentAt: (r.reminder_sent_at as Date | null) ?? null,
+    languageCode: (r.language_code as string | null) ?? null,
     createdAt: r.created_at as Date,
     lastSeenAt: r.last_seen_at as Date,
   };
@@ -189,16 +230,20 @@ export async function upsertUser(t: {
   id: number;
   username?: string;
   firstName: string;
+  /** v49: язык приложения Telegram (ru/en/de/fr) — пишется при входе. */
+  languageCode?: string;
 }): Promise<void> {
   const sql = getSql();
   await ensureSchema();
   const usernameLower = t.username?.toLowerCase() ?? null;
+  const language = t.languageCode?.trim().slice(0, 8) ?? null;
   await sql`
-    INSERT INTO glam_users (telegram_id, username, first_name)
-    VALUES (${t.id}, ${usernameLower}, ${t.firstName})
+    INSERT INTO glam_users (telegram_id, username, first_name, language_code)
+    VALUES (${t.id}, ${usernameLower}, ${t.firstName}, ${language})
     ON CONFLICT (telegram_id) DO UPDATE SET
       username = COALESCE(EXCLUDED.username, glam_users.username),
       first_name = COALESCE(EXCLUDED.first_name, glam_users.first_name),
+      language_code = COALESCE(EXCLUDED.language_code, glam_users.language_code),
       last_seen_at = now()`;
 }
 
@@ -208,7 +253,8 @@ export async function getUser(telegramId: number): Promise<UserRow | null> {
   const rows = await sql`
     SELECT telegram_id, username, first_name, plan, trial_used,
            monthly_used, monthly_reset_ym, subscription_until,
-           studio_slug, bonus_generations, created_at, last_seen_at
+           studio_slug, bonus_generations, paid_generations, reminder_sent_at,
+           language_code, created_at, last_seen_at
     FROM glam_users WHERE telegram_id = ${telegramId} LIMIT 1`;
   return rows[0] ? toRow(rows[0]) : null;
 }
@@ -221,11 +267,13 @@ export function rowAllowance(row: UserRow) {
     monthlyResetYm: row.monthlyResetYm,
     subscriptionUntil: row.subscriptionUntil,
     bonusGenerations: row.bonusGenerations,
+    paidGenerations: row.paidGenerations,
   });
 }
 
 /**
- * Списывает одну генерацию: по месячной квоте подписки либо из пробного остатка.
+ * Списывает одну генерацию: по месячной квоте подписки, из бесплатного остатка
+ * (триал + бонус) либо из купленного баланса — в этом порядке.
  * Вызывается ТОЛЬКО после успешной генерации — неудачные запросы не расходуют лимит.
  */
 export async function consumeGeneration(telegramId: number, kind: string): Promise<void> {
@@ -233,7 +281,8 @@ export async function consumeGeneration(telegramId: number, kind: string): Promi
   await ensureSchema();
   await sql.begin(async (tx) => {
     const rows = await tx`
-      SELECT plan, trial_used, monthly_used, monthly_reset_ym, subscription_until
+      SELECT plan, trial_used, monthly_used, monthly_reset_ym, subscription_until,
+             bonus_generations, paid_generations
       FROM glam_users WHERE telegram_id = ${telegramId} FOR UPDATE`;
     const row = rows[0];
     if (!row) return;
@@ -243,6 +292,8 @@ export async function consumeGeneration(telegramId: number, kind: string): Promi
       monthlyUsed: Number(row.monthly_used),
       monthlyResetYm: row.monthly_reset_ym,
       subscriptionUntil: row.subscription_until,
+      bonusGenerations: Number(row.bonus_generations ?? 0),
+      paidGenerations: Number(row.paid_generations ?? 0),
     });
     if (allowance.mode === "sub") {
       const ym = currentYm();
@@ -253,9 +304,18 @@ export async function consumeGeneration(telegramId: number, kind: string): Promi
         await tx`UPDATE glam_users SET monthly_used = 1, monthly_reset_ym = ${ym}, last_seen_at = now()
           WHERE telegram_id = ${telegramId}`;
       }
-    } else {
+    } else if ((allowance.trialRemaining ?? 0) > 0) {
+      // Бесплатные (триал + бонус) идут первыми
       await tx`UPDATE glam_users SET trial_used = trial_used + 1, last_seen_at = now()
         WHERE telegram_id = ${telegramId}`;
+    } else if ((allowance.paidRemaining ?? 0) > 0) {
+      // Затем купленный баланс (Stars-пакеты, поштучные)
+      await tx`UPDATE glam_users
+        SET paid_generations = GREATEST(0, paid_generations - 1), last_seen_at = now()
+        WHERE telegram_id = ${telegramId}`;
+    } else {
+      // Ничего не осталось — списывать нечего (защита от гонки)
+      return;
     }
     await tx`INSERT INTO glam_generations (telegram_id, kind) VALUES (${telegramId}, ${kind})`;
   });
@@ -276,7 +336,7 @@ export async function listUsers(limit = 100): Promise<AdminUserRow[]> {
   const rows = await sql`
     SELECT u.telegram_id, u.username, u.first_name, u.plan, u.trial_used,
            u.monthly_used, u.monthly_reset_ym, u.subscription_until,
-           u.studio_slug, u.bonus_generations,
+           u.studio_slug, u.bonus_generations, u.paid_generations, u.reminder_sent_at,
            u.created_at, u.last_seen_at, st.name AS studio_name,
            (SELECT COUNT(*) FROM glam_generations g WHERE g.telegram_id = u.telegram_id)::int AS generations_total
     FROM glam_users u
@@ -571,6 +631,187 @@ export async function setPayRequestStatus(
   return rows.length > 0;
 }
 
+// ---------- v49: Автоплатежи (Telegram Stars) ----------
+
+export interface PaymentRow {
+  id: number;
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  pack: string;
+  generations: number;
+  stars: number;
+  rub: number;
+  chargeId: string;
+  createdAt: Date;
+}
+
+function toPayment(r: Record<string, unknown>): PaymentRow {
+  return {
+    id: Number(r.id),
+    telegramId: Number(r.telegram_id),
+    username: (r.username as string | null) ?? null,
+    firstName: (r.first_name as string | null) ?? null,
+    pack: String(r.pack),
+    generations: Number(r.generations),
+    stars: Number(r.stars),
+    rub: Number(r.rub ?? 0),
+    chargeId: String(r.charge_id ?? ""),
+    createdAt: new Date(r.created_at as unknown as string),
+  };
+}
+
+/**
+ * Зачисляет генерации за успешный Stars-платёж. Идемпотентно по charge_id:
+ * Telegram может прислать successful_payment дважды (ретрай вебхука) —
+ * второй раз зачисления не будет, но ответ останется «успех».
+ * Возвращает true, если зачисление выполнено именно этим вызовом.
+ */
+export async function creditPaidGenerations(t: {
+  telegramId: number;
+  pack: PackId | "unknown";
+  generations: number;
+  stars: number;
+  rub: number;
+  chargeId: string;
+}): Promise<boolean> {
+  const sql = getSql();
+  await ensureSchema();
+  return sql.begin(async (tx) => {
+    const inserted = await tx`
+      INSERT INTO glam_payments (telegram_id, pack, generations, stars, rub, charge_id)
+      VALUES (${t.telegramId}, ${t.pack}, ${t.generations}, ${t.stars}, ${t.rub}, ${t.chargeId})
+      ON CONFLICT (charge_id) DO NOTHING
+      RETURNING id`;
+    if (inserted.length === 0) return false;
+    if (t.generations > 0) {
+      await tx`
+        UPDATE glam_users
+        SET paid_generations = GREATEST(0, paid_generations) + ${t.generations}
+        WHERE telegram_id = ${t.telegramId}`;
+    }
+    return true;
+  });
+}
+
+/** Последние платежи — для блока «Платежи» в /admin. */
+export async function listPayments(limit = 20): Promise<PaymentRow[]> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT p.id, p.telegram_id, p.pack, p.generations, p.stars, p.rub,
+           p.charge_id, p.created_at,
+           u.username, u.first_name
+    FROM glam_payments p
+    LEFT JOIN glam_users u ON u.telegram_id = p.telegram_id
+    ORDER BY p.created_at DESC
+    LIMIT ${Math.min(100, Math.max(1, limit))}`;
+  return rows.map(toPayment);
+}
+
+export interface PaymentsStats {
+  total: number;
+  stars: number;
+  rub: number;
+  generations: number;
+  buyers: number;
+  byPack: Array<{ pack: string; count: number; stars: number }>;
+}
+
+/** Сводка по всем платежам — суммарная выручка и разбивка по пакетам. */
+export async function paymentsStats(): Promise<PaymentsStats> {
+  const sql = getSql();
+  await ensureSchema();
+  const [tot] = await sql`
+    SELECT COUNT(*)::int AS total,
+           COALESCE(SUM(stars), 0)::int AS stars,
+           COALESCE(SUM(rub), 0)::float8 AS rub,
+           COALESCE(SUM(generations), 0)::int AS generations,
+           COUNT(DISTINCT telegram_id)::int AS buyers
+    FROM glam_payments`;
+  const byPack = await sql`
+    SELECT pack, COUNT(*)::int AS count, COALESCE(SUM(stars), 0)::int AS stars
+    FROM glam_payments GROUP BY pack ORDER BY count DESC`;
+  return {
+    total: Number(tot?.total ?? 0),
+    stars: Number(tot?.stars ?? 0),
+    rub: Number(tot?.rub ?? 0),
+    generations: Number(tot?.generations ?? 0),
+    buyers: Number(tot?.buyers ?? 0),
+    byPack: byPack.map((r) => ({
+      pack: String(r.pack),
+      count: Number(r.count),
+      stars: Number(r.stars),
+    })),
+  };
+}
+
+// ---------- v49: Напоминания замершим ----------
+
+export interface SleeperRow {
+  telegramId: number;
+  firstName: string | null;
+  /** Сколько генераций доступно прямо сейчас (бесплатных + купленных). */
+  remaining: number;
+  /** v49: язык приложения Telegram — на нём пишем напоминание. */
+  languageCode: string | null;
+  lastSeenAt: Date;
+}
+
+/**
+ * «Замершие»: ещё есть генерации (бесплатные или купленные), но не заходили
+ * idleDays дней и напоминание им ещё не отправляли. Кандидаты на мягкое
+ * «твои примерки ждут» — ровно тот сегмент, который теряется после первой
+ * генерации. Подписчиков салона не трогаем.
+ */
+export async function listSleepers(idleDays: number, limit = 50): Promise<SleeperRow[]> {
+  const sql = getSql();
+  await ensureSchema();
+  const rows = await sql`
+    SELECT telegram_id, first_name, trial_used, bonus_generations,
+           paid_generations, language_code, last_seen_at
+    FROM glam_users
+    WHERE plan = 'trial'
+      AND reminder_sent_at IS NULL
+      AND last_seen_at < now() - ${Math.max(1, Math.floor(idleDays))} * interval '1 day'
+      AND (trial_used < ${TRIAL_LIMIT} + bonus_generations OR paid_generations > 0)
+    ORDER BY last_seen_at DESC
+    LIMIT ${Math.min(200, Math.max(1, limit))}`;
+  return rows.map((r) => {
+    const row: UserRow = toRow({ ...r, plan: "trial", monthly_used: 0, monthly_reset_ym: null, subscription_until: null, studio_slug: null, created_at: r.last_seen_at });
+    const allowance = rowAllowance(row);
+    return {
+      telegramId: Number(r.telegram_id),
+      firstName: (r.first_name as string | null) ?? null,
+      remaining: allowance.remaining,
+      languageCode: (r.language_code as string | null) ?? null,
+      lastSeenAt: r.last_seen_at as Date,
+    };
+  });
+}
+
+/** Отмечает, что напоминание отправлено — повторно пользователю не пишем. */
+export async function markReminded(telegramIds: number[]): Promise<void> {
+  if (telegramIds.length === 0) return;
+  const sql = getSql();
+  await ensureSchema();
+  await sql`
+    UPDATE glam_users SET reminder_sent_at = now()
+    WHERE telegram_id IN ${sql(telegramIds)} AND reminder_sent_at IS NULL`;
+}
+
+/**
+ * v49: сохраняет ВЫБРАННЫЙ язык интерфейса (кнопки RU/EN/DE/FR в paywall).
+ * Вызывается из /api/auth/lang — только внутри подписанной сессии.
+ * Язык из Telegram (language_code) пишется отдельно — при входе через Mini App.
+ */
+export async function setUserLanguage(telegramId: number, lang: string): Promise<void> {
+  const sql = getSql();
+  await ensureSchema();
+  await sql`UPDATE glam_users SET language_code = ${lang}
+    WHERE telegram_id = ${telegramId}`;
+}
+
 // ---------- Фото по ссылке (v40) ----------
 //
 // Готовый образ хранится на сервере (Neon) и выдаётся по неугадываемой
@@ -836,6 +1077,8 @@ export async function getStudioBySlug(slug: string): Promise<StudioRow | null> {
  * Привязывает пользователя к студии-источнику. Срабатывает только при ПЕРВОМ
  * касании (studio_slug ещё пустой) и только если студия существует и активна:
  * «первый показал — тот и собрал аудиторию», перебить источник нельзя.
+ * v49: клиенту студии сразу начисляем бонус +4 — обещание «5 бесплатных
+ * примерок для ваших клиентов» (1 базовая + 4 бонуса).
  */
 export async function attachStudioBySlug(telegramId: number, slug: string): Promise<boolean> {
   const clean = normalizeStudioSlug(slug);
@@ -843,7 +1086,8 @@ export async function attachStudioBySlug(telegramId: number, slug: string): Prom
   const sql = getSql();
   await ensureSchema();
   const rows = await sql`
-    UPDATE glam_users u SET studio_slug = s.slug
+    UPDATE glam_users u SET studio_slug = s.slug,
+      bonus_generations = GREATEST(u.bonus_generations, ${STUDIO_TRIAL_BONUS})
     FROM glam_studios s
     WHERE s.slug = ${clean} AND s.active
       AND u.telegram_id = ${telegramId} AND u.studio_slug IS NULL

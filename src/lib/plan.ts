@@ -1,23 +1,37 @@
 // Тарифная модель GlamAI Studio (чистая логика, без обращений к БД/сети).
-// Модель продаж: бесплатный триал (несколько генераций) + месячная подписка.
-// «Старт» — один мастер, «Салон» — студия с несколькими мастерами.
+// v49: розница — 1 бесплатная генерация + баланс купленных генераций
+// («Пять за 74», «Старт» на 46 — см. lib/tariffs.ts); «Салон» — студийная
+// подписка 170 генераций в месяц. Клиент студии получает 3 бесплатных
+// примерки: 1 базовая + 2 бонуса, которые начисляются при атрибуции
+// (сокращено с пяти решением владельца 28.11.2026).
+
+import { MASS_TRIAL_LIMIT, SALON_MONTHLY_QUOTA } from "@/lib/tariffs";
 
 export type PlanName = "trial" | "start" | "salon";
 
-/** Цена в рублях в месяц (ручные продажи на старте, ЮKassa — позже). */
+/** Цена в рублях (ручные продажи: «Старт» — разово, «Салон» — в месяц). */
 export const PLAN_PRICES: Record<"start" | "salon", number> = {
   start: 690,
   salon: 2490,
 };
 
-/** Лимит генераций на месяц по платным тарифам. */
+/** Лимит генераций по платным тарифам. «Старт» с v49 — разовый пакет на 46
+ *  генераций (без месяца); квота ниже — только для старых подписок,
+ *  выданных вручную до перехода на пакетную модель. */
 export const PLAN_QUOTA: Record<"start" | "salon", number> = {
   start: 60,
-  salon: 200,
+  salon: SALON_MONTHLY_QUOTA,
 };
 
-/** Сколько генераций даём бесплатно без карты. */
-export const TRIAL_LIMIT = Math.max(1, Number(process.env.TRIAL_LIMIT ?? 5) || 5);
+/** Сколько генераций даём бесплатно розничному пользователю.
+ *  v49 — ОДНА (было 5). Клиент студии получает три: 1 базовая + 2 бонуса
+ *  при атрибуции по ссылке студии (см. store.ts → attachStudioBySlug).
+ *  Если на Vercel задана переменная TRIAL_LIMIT — она перекрывает дефолт:
+ *  для новой модели удали её или поставь 1. */
+export const TRIAL_LIMIT = Math.max(
+  1,
+  Number(process.env.TRIAL_LIMIT ?? MASS_TRIAL_LIMIT) || MASS_TRIAL_LIMIT
+);
 
 export function planLabel(plan: string): string {
   if (plan === "start") return "Старт";
@@ -40,6 +54,9 @@ export interface UserPlanState {
   /** Дополнительные бесплатные генерации (v41): добор от салона/владельца,
    *  увеличивает пробный лимит сверху — расходуется наравне с обычными. */
   bonusGenerations?: number;
+  /** v49: баланс КУПЛЕННЫХ генераций («Пять за 74», «Старт», поштучные).
+   *  Расходуется после бесплатных, не имеет срока. */
+  paidGenerations?: number;
 }
 
 /** Безопасное приведение даты: принимает Date или ISO-строку, NULL → null. */
@@ -65,6 +82,10 @@ export interface Allowance {
   reason?: "trial_exhausted" | "quota_exhausted";
   /** Сколько из общего лимита — бонусные генерации (v41, только для trial) */
   bonus?: number;
+  /** v49: осталось бесплатных (триал + бонус), без купленных */
+  trialRemaining?: number;
+  /** v49: остаток купленного баланса (не имеет срока) */
+  paidRemaining?: number;
 }
 
 /**
@@ -99,9 +120,12 @@ export function checkAllowance(s: UserPlanState, now: Date = new Date()): Allowa
 
   // Пробный лимит + бонусные генерации (добор «+5» от салона или владельца).
   // Расходуются из одного счётчика trial_used — бонус просто поднимает потолок.
+  // v49: после бесплатных расходуется купленный баланс (paid_generations).
   const bonus = Math.max(0, Math.floor(s.bonusGenerations ?? 0));
+  const paid = Math.max(0, Math.floor(s.paidGenerations ?? 0));
   const total = TRIAL_LIMIT + bonus;
-  const remaining = Math.max(0, total - s.trialUsed);
+  const trialRemaining = Math.max(0, total - s.trialUsed);
+  const remaining = trialRemaining + paid;
   return {
     allowed: remaining > 0,
     mode: "trial",
@@ -110,6 +134,8 @@ export function checkAllowance(s: UserPlanState, now: Date = new Date()): Allowa
     planLabel: label,
     subscriptionActive: false,
     bonus,
+    trialRemaining,
+    paidRemaining: paid,
     reason: remaining > 0 ? undefined : "trial_exhausted",
   };
 }

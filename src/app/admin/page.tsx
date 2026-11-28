@@ -78,6 +78,35 @@ interface PayRequest {
   createdAt: string;
 }
 
+// v49: Stars-платежи и сводка по ним
+interface PaymentRow {
+  id: number;
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  pack: string;
+  generations: number;
+  stars: number;
+  rub: number;
+  createdAt: string;
+}
+
+interface PaymentsStats {
+  total: number;
+  stars: number;
+  rub: number;
+  generations: number;
+  buyers: number;
+  byPack: Array<{ pack: string; count: number; stars: number }>;
+}
+
+interface WebhookInfo {
+  url?: string;
+  pending_update_count?: number;
+  last_error_message?: string;
+  last_error_date?: number;
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "2-digit" });
@@ -134,6 +163,12 @@ export default function AdminPage() {
   const [importText, setImportText] = useState("");
   const [importCount, setImportCount] = useState(0);
   const [importReport, setImportReport] = useState<string | null>(null);
+  // v49: Stars-платежи и webhook
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [payStats, setPayStats] = useState<PaymentsStats | null>(null);
+  const [webhookSecretSet, setWebhookSecretSet] = useState(false);
+  const [webhookInfo, setWebhookInfo] = useState<WebhookInfo | null>(null);
+  const [webhookNote, setWebhookNote] = useState<string | null>(null);
 
   const loadList = useCallback(async () => {
     setError(null);
@@ -151,6 +186,9 @@ export default function AdminPage() {
       setPay(data.pay ?? null);
       setRequests(data.requests ?? []);
       setStudios(data.studios ?? []);
+      setPayments(data.payments ?? []);
+      setPayStats(data.payStats ?? null);
+      setWebhookSecretSet(data.webhookSecretSet ?? false);
       setBotUsername(data.botUsername ?? "");
       setAuthed(true);
     } catch (e) {
@@ -162,6 +200,61 @@ export default function AdminPage() {
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  // v49: подключить приём платежей — setWebhook на /api/telegram/webhook.
+  // Первый запуск может подсказать секрет для Vercel (кладём в буфер обмена).
+  const setupWebhook = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setWebhookNote(null);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "webhook_setup" }),
+      });
+      const data = await res.json();
+      if (data.needSecret) {
+        setWebhookNote(data.error ?? "Задай TELEGRAM_WEBHOOK_SECRET на Vercel.");
+        try {
+          await navigator.clipboard.writeText(String(data.suggest ?? ""));
+        } catch {
+          /* буфер недоступен — значение видно в подсказке */
+        }
+        return;
+      }
+      if (!data.ok) throw new Error(data.error ?? "Не удалось подключить webhook");
+      setWebhookInfo(data.info ?? null);
+      setWebhookNote(`Webhook подключён: ${data.url ?? ""}`);
+      await loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка операции");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // v49: посмотреть текущий статус webhook (Telegram отвечает getWebhookInfo)
+  const checkWebhook = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "webhook_info" }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Не удалось получить статус");
+      setWebhookInfo(data.info ?? null);
+      setWebhookNote(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка операции");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // QR-код оплаты для печати: ссылка банка или телефон СБП — то же,
   // что видит клиент в paywall
@@ -450,6 +543,139 @@ export default function AdminPage() {
                 )}
               </section>
             )}
+
+            <section className="green-card mb-5 rounded-3xl p-5" data-testid="payments-panel">
+              <h2 className="mb-1 font-serif text-lg font-bold">Платежи Звёздами</h2>
+              <p className="mb-3 text-sm text-[#F8F1E1]/75">
+                Автооплата в боте: клиент платит Звёздами Telegram — генерации зачисляются
+                мгновенно, без чеков и ручного включения. Переводы по реквизитам
+                («Старт», «Салон») остаются ручными — их включай кнопкой «Выдать подписку».
+              </p>
+
+              {payStats && payStats.total > 0 ? (
+                <>
+                  <div className="mb-4 grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+                    <div className="rounded-2xl bg-white/10 p-3">
+                      <p className="font-serif text-2xl font-bold">{payStats.total}</p>
+                      <p className="text-xs text-[#F8F1E1]/70">платежей</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 p-3">
+                      <p className="font-serif text-2xl font-bold">{payStats.stars}</p>
+                      <p className="text-xs text-[#F8F1E1]/70">звёзд получено</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 p-3">
+                      <p className="font-serif text-2xl font-bold">
+                        {Math.round(payStats.rub).toLocaleString("ru-RU")} ₽
+                      </p>
+                      <p className="text-xs text-[#F8F1E1]/70">сумма пакетов</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 p-3">
+                      <p className="font-serif text-2xl font-bold">{payStats.buyers}</p>
+                      <p className="text-xs text-[#F8F1E1]/70">покупателей</p>
+                    </div>
+                  </div>
+                  {payStats.byPack.length > 0 && (
+                    <ul className="mb-4 space-y-1 text-sm">
+                      {payStats.byPack.map((p) => (
+                        <li
+                          key={p.pack}
+                          className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-white/5 px-3 py-1.5"
+                        >
+                          <span className="font-mono text-xs text-[#F6B93B]">{p.pack}</span>
+                          <span className="text-xs text-[#F8F1E1]/85">
+                            {p.count} шт · {p.stars} ★
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p className="mb-4 rounded-2xl bg-white/10 p-3 text-sm text-[#F8F1E1]/85">
+                  Платежей пока нет. Подключи приём платежей ниже — после этого кнопки
+                  «Оплатить Звёздами» заработают, и первые продажи появятся здесь.
+                </p>
+              )}
+
+              <div className="mb-4 rounded-2xl bg-white/10 p-3">
+                <p className="text-sm font-semibold">
+                  Приём платежей (webhook):{" "}
+                  {webhookSecretSet ? (
+                    <span className="text-[#9FD8A0]">секрет задан</span>
+                  ) : (
+                    <span className="text-[#F6B93B]">секрет НЕ задан</span>
+                  )}
+                </p>
+                {webhookNote && (
+                  <p className="mt-1 break-all rounded-lg bg-[#2E2210]/90 p-2 text-xs text-[#F8F1E1]/90">
+                    {webhookNote}
+                  </p>
+                )}
+                {webhookInfo?.url && (
+                  <p className="mt-1 break-all font-mono text-xs text-[#F6B93B]">
+                    {webhookInfo.url}
+                    {webhookInfo.pending_update_count
+                      ? ` · в очереди: ${webhookInfo.pending_update_count}`
+                      : ""}
+                    {webhookInfo.last_error_message
+                      ? ` · последняя ошибка: ${webhookInfo.last_error_message}`
+                      : ""}
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    className="glam-btn h-10 text-sm font-bold"
+                    onClick={() => void setupWebhook()}
+                    disabled={busy}
+                    data-testid="webhook-setup"
+                  >
+                    Подключить приём платежей
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-10 border-[#F8F1E1]/30 text-sm text-[#F8F1E1] hover:bg-white/10"
+                    onClick={() => void checkWebhook()}
+                    disabled={busy}
+                    data-testid="webhook-check"
+                  >
+                    Проверить статус
+                  </Button>
+                </div>
+                {!webhookSecretSet && (
+                  <p className="mt-2 text-xs leading-relaxed text-[#F8F1E1]/70">
+                    Шаги: 1) нажми «Подключить» — подсказка выдаст строку вида glamwh_… (и
+                    положит её в буфер); 2) добавь её на Vercel как переменную
+                    TELEGRAM_WEBHOOK_SECRET и сделай Redeploy; 3) нажми «Подключить» ещё раз.
+                    Всё: приём платежей работает.
+                  </p>
+                )}
+              </div>
+
+              {payments.length > 0 && (
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Последние платежи:</p>
+                  <ul className="space-y-1 text-sm text-[#F8F1E1]/85">
+                    {payments.map((p) => {
+                      const who =
+                        p.firstName || (p.username ? `@${p.username}` : `id ${p.telegramId}`);
+                      return (
+                        <li
+                          key={p.id}
+                          className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-white/5 px-3 py-1.5"
+                        >
+                          <span>
+                            {fmtDateTime(p.createdAt)} — {who}
+                          </span>
+                          <span className="text-xs text-[#F8F1E1]/85">
+                            {p.pack} · {p.generations} ген. · {p.stars} ★
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </section>
 
             <section className="green-card mb-5 rounded-3xl p-5">
               <h2 className="mb-3 font-serif text-lg font-bold">Выдать / продлить подписку</h2>

@@ -7,15 +7,16 @@
 // долгое нажатие на фото — в любом случае. Именно поэтому «Сохранить в
 // галерею» внутри студии открывает эту страницу во внешнем браузере.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Sparkles, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isIosDevice, saveImageFile, shareImage } from "@/lib/download";
+import { type Lang, pickClientLang, t } from "@/lib/i18n";
 import { ZoomViewer } from "./ZoomViewer";
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, lang: string): string {
   try {
-    return new Date(iso).toLocaleDateString("ru-RU", {
+    return new Date(iso).toLocaleDateString(lang === "en" ? "en-US" : lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "ru-RU", {
       day: "numeric",
       month: "long",
     });
@@ -35,7 +36,12 @@ export function ShareView({
   const [hint, setHint] = useState<string | null>(null);
   // v44: лупа деталей — клиентка тоже может рассмотреть образ вблизи
   const [zoomOpen, setZoomOpen] = useState(false);
-  const until = formatDate(expiresAtIso);
+  // Публичная страница вне AuthGate — язык определяем сами (браузер клиента).
+  const [lang, setLang] = useState<Lang>("ru");
+  useEffect(() => {
+    setLang(pickClientLang({ browser: navigator.language }));
+  }, []);
+  const until = formatDate(expiresAtIso, lang);
 
   const handleSave = async () => {
     if (busy) return;
@@ -45,9 +51,9 @@ export function ShareView({
       // iPhone: системное «Поделиться» — в нём есть «Сохранить изображение»,
       // самый короткий путь в галерею «Фото»
       if (isIosDevice()) {
-        const how = await shareImage(imgSrc, "Ваш образ GlamAI Studio");
+        const how = await shareImage(imgSrc, t(lang, "sv.shareTitle"));
         if (how === "share") {
-          setHint("В меню выберите «Сохранить изображение» — фото попадёт в галерею.");
+          setHint(t(lang, "sv.hintShare"));
           setTimeout(() => setHint(null), 15_000);
           return;
         }
@@ -55,9 +61,9 @@ export function ShareView({
       }
       const how = await saveImageFile(imgSrc, `glamai-look-${Date.now()}`, "download-only");
       if (how === "download") {
-        setHint("Фото скачано — оно в «Загрузках» и уже видно в галерее телефона.");
+        setHint(t(lang, "sv.hintDownload"));
       } else {
-        setHint("Если меню не открылось — просто удерживайте палец на фото и выберите «Сохранить».");
+        setHint(t(lang, "sv.hintHold"));
       }
       setTimeout(() => setHint(null), 15_000);
     } finally {
@@ -77,14 +83,14 @@ export function ShareView({
               GlamAI Studio
             </p>
             <p className="text-xs text-[#F8F1E1]/60">
-              Ваш готовый образ от визажиста
+              {t(lang, "sv.tagline")}
             </p>
           </div>
         </div>
 
         <img
           src={imgSrc}
-          alt="Ваш образ GlamAI Studio"
+          alt={t(lang, "sv.shareTitle")}
           className="w-full cursor-zoom-in rounded-2xl shadow-2xl"
           onClick={() => setZoomOpen(true)}
           draggable={false}
@@ -95,25 +101,24 @@ export function ShareView({
           className="glam-btn mt-5 h-12 w-full font-semibold"
           onClick={() => void handleSave()}
           disabled={busy}
-          aria-label="Сохранить фото в галерею телефона"
+          aria-label={t(lang, "sv.zoomAria2")}
           data-testid="share-save"
         >
           <Download className="h-4 w-4" aria-hidden />
-          {busy ? "Готовим…" : "Сохранить фото"}
+          {busy ? t(lang, "sv.busy") : t(lang, "sv.save")}
         </Button>
         <Button
           variant="outline"
           className="mt-2 h-11 w-full border-[#F8F1E1]/30 bg-transparent text-[#F8F1E1] hover:bg-white/10"
           onClick={() => setZoomOpen(true)}
-          aria-label="Рассмотреть образ вблизи"
+          aria-label={t(lang, "sv.zoomAria")}
           data-testid="share-zoom"
         >
           <ZoomIn className="h-4 w-4" aria-hidden />
-          Рассмотреть образ вблизи
+          {t(lang, "sv.zoomAria")}
         </Button>
         <p className="mt-2 text-center text-xs leading-relaxed text-[#F8F1E1]/60">
-          Либо просто удерживайте палец на фото и выберите
-          «Сохранить в галерею» / «Добавить в Фото».
+          {t(lang, "sv.holdAlt")}
         </p>
         {hint && (
           <p className="mt-3 text-center text-sm font-medium leading-relaxed text-[#F6B93B]">
@@ -125,15 +130,14 @@ export function ShareView({
         {zoomOpen && (
           <ZoomViewer
             src={imgSrc}
-            alt="Ваш образ GlamAI Studio крупным планом"
+            alt={t(lang, "res.altZoom")}
             onClose={() => setZoomOpen(false)}
           />
         )}
 
         {until && (
           <p className="mt-7 text-center text-[11px] leading-relaxed text-[#F8F1E1]/40">
-            Фото доступно по этой ссылке до {until} — потом оно автоматически
-            стирается с сервера. Успейте сохранить.
+            {t(lang, "sv.expires", { until })}
           </p>
         )}
       </div>
@@ -143,20 +147,21 @@ export function ShareView({
 
 /** Ссылка просрочена (7 дней) или неверна — вежливое объяснение вместо ошибки. */
 export function ShareViewExpired() {
+  const lang = typeof window !== "undefined"
+    ? pickClientLang({ browser: navigator.language })
+    : "ru";
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-[#043E21] px-6 text-center">
       <div className="green-window w-full max-w-sm rounded-2xl p-6">
-        <p className="font-serif text-xl text-[#F8F1E1]">Ссылка устарела</p>
+        <p className="font-serif text-xl text-[#F8F1E1]">{t(lang, "sv.expired")}</p>
         <p className="mt-2 text-sm leading-relaxed text-[#F8F1E1]/70">
-          Фото по ссылке хранится 7 дней, потом автоматически стирается — мы
-          бережём личные фотографии. Попросите мастера отправить свежую ссылку:
-          новый образ создаётся за минуту.
+          {t(lang, "sv.expiredBody")}
         </p>
         <a
           href="/"
           className="mt-4 inline-flex h-10 items-center rounded-xl bg-[#F6B93B]/20 px-4 text-sm font-medium text-[#F6B93B] hover:bg-[#F6B93B]/30"
         >
-          Открыть студию
+          {t(lang, "sv.openStudio")}
         </a>
       </div>
     </main>

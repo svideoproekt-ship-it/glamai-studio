@@ -3,6 +3,7 @@
 // БЛОК 3 «Глаза»: ресницы (форма стрелок + тушь), брови (форма), веки
 // (техника нанесения) — у каждой области свой список вариантов, своя палитра
 // и плотность. Здесь же «Инструменты» — кисти для работы с глазами.
+// v49: подписи областей и вариантов на языке интерфейса (i18n).
 
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -15,16 +16,25 @@ import {
   type EyeAreaState,
   type ProductId,
 } from "@/lib/makeup";
+import {
+  areaDesc,
+  areaLabel,
+  enableAria,
+  optionGroupLabel,
+  optionLabel,
+  toolsTitle,
+} from "@/lib/i18n";
 import { FinishChips, IntensityChips, OptionChip, SwatchPicker, ToolPicker } from "./ConstructorBits";
+import { useLang } from "./AuthGate";
 
-/** Метаданные области: подпись, акцент, палитра какого продукта использовать */
+/** Метаданные области: акцент, палитра какого продукта использовать */
 const AREA_META: Record<
   EyeAreaId,
-  { label: string; desc: string; accent: string; palette: ProductId; withFinish: boolean }
+  { accent: string; palette: ProductId; withFinish: boolean }
 > = {
-  lashes: { label: "Ресницы", desc: "стрелки и тушь", accent: "#7FA8C9", palette: "eyeliner", withFinish: false },
-  brows: { label: "Брови", desc: "форма и оттенок", accent: "#A9714B", palette: "brows", withFinish: false },
-  lids: { label: "Веки", desc: "техника теней и оттенок", accent: "#B76E79", palette: "eyeshadow", withFinish: true },
+  lashes: { accent: "#7FA8C9", palette: "eyeliner", withFinish: false },
+  brows: { accent: "#A9714B", palette: "brows", withFinish: false },
+  lids: { accent: "#B76E79", palette: "eyeshadow", withFinish: true },
 };
 
 interface EyePanelProps {
@@ -35,6 +45,7 @@ interface EyePanelProps {
 }
 
 export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) {
+  const { lang } = useLang();
   return (
     <div className="space-y-3">
       {EYE_AREA_IDS.map((id) => {
@@ -83,7 +94,7 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
                     state.enabled ? "text-[#6F4E37]" : "text-[#6F4E37]/80"
                   )}
                 >
-                  {meta.label}
+                  {areaLabel(lang, id)}
                 </div>
                 <div
                   className={cn(
@@ -91,13 +102,13 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
                     state.enabled ? "text-[#6F4E37]/75" : "text-[#6F4E37]/60"
                   )}
                 >
-                  {meta.desc}
+                  {areaDesc(lang, id)}
                 </div>
               </div>
               <Switch
                 checked={state.enabled}
                 onCheckedChange={(checked) => onPatch(id, { enabled: checked })}
-                aria-label={`Включить: ${meta.label}`}
+                aria-label={enableAria(lang, areaLabel(lang, id))}
               />
             </div>
 
@@ -108,7 +119,7 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
               >
                 <div>
                   <p className="mb-1.5 text-sm text-[#6F4E37]/70">
-                    {id === "lashes" ? "Форма стрелок" : id === "brows" ? "Форма бровей" : "Техника нанесения"}
+                    {optionGroupLabel(lang, id)}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {options.map((o) => (
@@ -116,10 +127,10 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
                         key={o.id}
                         active={state.option === o.id}
                         onClick={() => onPatch(id, { option: o.id })}
-                        title={o.label}
+                        title={optionLabel(lang, id, o.id)}
                         testId={`eye-${id}-option-${o.id}`}
                       >
-                        {o.label}
+                        {optionLabel(lang, id, o.id)}
                       </OptionChip>
                     ))}
                   </div>
@@ -129,7 +140,7 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
                   color={state.color}
                   accent={meta.accent}
                   onChange={(hex) => onPatch(id, { color: hex })}
-                  label={meta.label}
+                  label={areaLabel(lang, id)}
                 />
                 <IntensityChips
                   value={state.intensity}
@@ -152,7 +163,7 @@ export function EyePanel({ eyes, onPatch, tools, onToggleTool }: EyePanelProps) 
         toolIds={EYE_TOOLS}
         selected={tools}
         onToggle={onToggleTool}
-        title="Инструменты"
+        title={toolsTitle(lang)}
         testId="eye-tools"
       />
     </div>

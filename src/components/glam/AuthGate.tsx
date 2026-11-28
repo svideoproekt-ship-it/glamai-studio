@@ -34,7 +34,20 @@ import {
 import QRCode from "qrcode";
 import { APP_VERSION } from "@/lib/version";
 import { PLAN_PRICES } from "@/lib/plan";
+import { RETAIL_PACKS, type PackId } from "@/lib/tariffs";
 import { payInfoComplete, payQrPayload, type PayInfo } from "@/lib/pay";
+import { cn } from "@/lib/utils";
+import {
+  type Lang,
+  LANGS,
+  genCount,
+  isLang,
+  packTitle,
+  pickClientLang,
+  planTitle,
+  saveLang,
+  t,
+} from "@/lib/i18n";
 
 export interface GlamProfile {
   telegramId: number;
@@ -42,6 +55,7 @@ export interface GlamProfile {
   username: string | null;
   plan: string;
   planLabel: string;
+  /** Активна ли сейчас подписка (для плашки в шапке) */
   subscriptionActive: boolean;
   subscriptionUntil: string | null;
   mode: "trial" | "sub";
@@ -49,6 +63,10 @@ export interface GlamProfile {
   total: number;
   /** Бонусные генерации — входят в total (v41). */
   bonus?: number;
+  /** v49: бесплатных осталось (без купленных) */
+  trialRemaining?: number;
+  /** v49: купленный баланс (генерации пакетов) */
+  paidRemaining?: number;
   /** Студия-партнёр, которая привела пользователя (v41): для кнопки «Записаться». */
   studio?: {
     slug: string;
@@ -89,8 +107,12 @@ interface TgWebApp {
   /** Открыть t.me-ссылку силами самого Telegram (без перехвата Unigram и пр.) */
   openTelegramLink?: (url: string) => void;
   /** Разобранные (НЕ подписанные) данные приложения: здесь живёт start_param —
-   *  метка источника студии t.me/<bot>?start=studio_<slug> (v41). */
-  initDataUnsafe?: { start_param?: string } | null;
+   *  метка источника студии t.me/<bot>?start=studio_<slug> (v41), и язык
+   *  приложения Telegram клиента (v49 — стартовый выбор языка интерфейса). */
+  initDataUnsafe?: {
+    start_param?: string;
+    user?: { language_code?: string } | null;
+  } | null;
   /** «android»/«ios» — телефон, «tdesktop»/«macos»/«web» — компьютер */
   platform?: string;
   /** Покрасить шапку и фон Telegram в цвет студии: без этого сверху и снизу
@@ -98,6 +120,10 @@ interface TgWebApp {
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
   setBottomBarColor?: (color: string) => void;
+  /** v49: открыть счёт Telegram Stars — встроенное окно оплаты внутри
+   *  Telegram. callback(status) срабатывает при закрытии окна: "paid"/
+   *  "cancelled"/"failed" — после любого исхода обновляем остаток. */
+  openInvoice?: (url: string, callback?: (status: string) => void) => void;
 }
 
 function getTelegramWebApp(): TgWebApp | null {
@@ -188,12 +214,81 @@ export function useAuth(): AuthContextValue {
   return useContext(AuthContext);
 }
 
+// ---------- Язык интерфейса (v49: ru/en/de/fr) ----------
+
+interface LangContextValue {
+  lang: Lang;
+  setLang: (lang: Lang) => void;
+}
+
+const LangContext = createContext<LangContextValue>({ lang: "ru", setLang: () => {} });
+
+/** Хук перевода: const { lang } = useLang(); const txt = tr("login.h1"). */
+export function useLang(): LangContextValue {
+  return useContext(LangContext);
+}
+
+/** Переключатель RU/EN/DE/FR — пилюли в шапке, на входе и в пейволле. */
+export function LangPicker({ compact = false }: { compact?: boolean }) {
+  const { lang, setLang } = useLang();
+  return (
+    <div
+      className="flex items-center gap-1 rounded-full border border-[#F8F1E1]/25 bg-[#032B16]/70 p-0.5"
+      role="group"
+      aria-label={t(lang, "lang.label")}
+    >
+      {LANGS.map((l) => (
+        <button
+          key={l.id}
+          type="button"
+          onClick={() => setLang(l.id)}
+          aria-pressed={lang === l.id}
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide transition-all",
+            lang === l.id
+              ? "bg-gradient-to-r from-[#D4A437] to-[#F6B93B] text-[#043E21]"
+              : "text-[#F8F1E1]/65 hover:text-[#F8F1E1]"
+          )}
+          data-testid={`lang-${l.id}`}
+        >
+          {l.label}
+          {compact ? "" : `· ${l.id === "ru" ? "Рус" : l.id === "en" ? "Eng" : l.id === "de" ? "Deu" : "Fra"}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<"loading" | "out" | "in">("loading");
   const [me, setMe] = useState<MeResponse | null>(null);
   const [paywall, setPaywall] = useState<PaywallPayload | null>(null);
   const [tgEnv, setTgEnv] = useState<TgEnv>("unknown");
   const [miniError, setMiniError] = useState<string | null>(null);
+  // v49: язык интерфейса. До монтирования — русский (самая массовая аудитория);
+  // после — определяем по localStorage → Telegram → браузеру.
+  const [lang, setLangState] = useState<Lang>("ru");
+
+  useEffect(() => {
+    const tgLang = getTelegramWebApp()?.initDataUnsafe?.user?.language_code ?? null;
+    const browser = typeof navigator !== "undefined" ? navigator.language : null;
+    setLangState(pickClientLang({ telegram: tgLang, browser }));
+  }, []);
+
+  const setLang = useCallback((next: Lang) => {
+    setLangState(next);
+    saveLang(next);
+    // Язык приложения Telegram сообщаем серверу — на нём придут webhook/cron
+    // (до первого входа поле пустое, это не страшно).
+    const app = getTelegramWebApp();
+    if (app?.initDataUnsafe?.user && isLang(next)) {
+      void fetch("/api/auth/lang", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: next }),
+      }).catch(() => {});
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -249,14 +344,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           return;
         }
         const data = (await res.json().catch(() => ({}))) as { message?: string };
-        setMiniError(
-          data.message ??
-            "Telegram не подтвердил вход. Закрой студию и открой её через кнопку бота ещё раз."
-        );
+        void data;
+        setMiniError("retry");
       } catch {
-        setMiniError(
-          "Не удалось связаться с сервером входа. Проверь интернет и открой студию через кнопку бота ещё раз."
-        );
+        setMiniError("network");
       }
     },
     [refresh]
@@ -308,39 +399,41 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (status === "loading") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <Loader2 className="h-7 w-7 animate-spin text-[#F6B93B]" aria-hidden />
-        <p className="text-sm text-muted-foreground">Загружаем студию…</p>
-      </div>
+      <LangContext.Provider value={{ lang, setLang }}>
+        <div className="flex min-h-screen flex-col items-center justify-center gap-3">
+          <Loader2 className="h-7 w-7 animate-spin text-[#F6B93B]" aria-hidden />
+          <p className="text-sm text-muted-foreground">{t(lang, "login.loading")}</p>
+        </div>
+      </LangContext.Provider>
     );
   }
 
   if (status === "out") {
-    return <LoginScreen me={me} tgEnv={tgEnv} miniError={miniError} />;
+    return (
+      <LangContext.Provider value={{ lang, setLang }}>
+        <LoginScreen me={me} tgEnv={tgEnv} miniError={miniError} />
+      </LangContext.Provider>
+    );
   }
 
   return (
-    <AuthContext.Provider value={contextValue}>
-      {children}
-      <PaywallDialog
-        payload={paywall}
-        onClose={() => setPaywall(null)}
-        ownerTg={me?.ownerTg ?? ""}
-        pay={me?.pay}
-        profile={me?.profile ?? null}
-      />
-    </AuthContext.Provider>
+    <LangContext.Provider value={{ lang, setLang }}>
+      <AuthContext.Provider value={contextValue}>
+        {children}
+        <PaywallDialog
+          payload={paywall}
+          onClose={() => setPaywall(null)}
+          ownerTg={me?.ownerTg ?? ""}
+          pay={me?.pay}
+          profile={me?.profile ?? null}
+          refresh={refresh}
+        />
+      </AuthContext.Provider>
+    </LangContext.Provider>
   );
 }
 
 // ---------- Экран входа ----------
-
-const AUTH_ERRORS: Record<string, string> = {
-  config:
-    "Вход не настроен на сервере: не заданы TELEGRAM_BOT_TOKEN или AUTH_SECRET. Инструкция — в README-DEPLOY-RU.md.",
-  telegram: "Telegram не подтвердил вход (подпись не сошлась). Попробуйте ещё раз.",
-  db: "База подписок недоступна. Если вы только что задали DATABASE_URL — сделайте Redeploy.",
-};
 
 function LoginScreen({
   me,
@@ -349,8 +442,10 @@ function LoginScreen({
 }: {
   me: MeResponse | null;
   tgEnv: TgEnv;
+  /** Ключ проблемы авто-входа: "retry" | "network" — текст локализуется в рендере. */
   miniError: string | null;
 }) {
+  const { lang } = useLang();
   const widgetRef = useRef<HTMLDivElement>(null);
   const authError = typeof window !== "undefined"
     ? new URLSearchParams(window.location.search).get("auth_error")
@@ -390,11 +485,7 @@ function LoginScreen({
     action = (
       <div className="flex items-start gap-2 rounded-xl border border-[#F6B93B]/40 bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-        <span>
-          Вход не настроен: задайте переменные <b>TELEGRAM_BOT_USERNAME</b>,{" "}
-          <b>TELEGRAM_BOT_TOKEN</b> и <b>AUTH_SECRET</b> (инструкция — в README-DEPLOY-RU.md)
-          и сделайте Redeploy.
-        </span>
+        <span>{t(lang, "login.noConfig")}</span>
       </div>
     );
   } else if (tgEnv === "webapp") {
@@ -404,16 +495,15 @@ function LoginScreen({
         {miniError ? (
           <div className="flex w-full items-start gap-2 rounded-xl bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <span>{miniError}</span>
+            <span>{t(lang, miniError === "network" ? "login.networkHint" : "login.retryHint")}</span>
           </div>
         ) : (
           <>
             <Loader2 className="h-5 w-5 animate-spin text-[#F6B93B]" aria-hidden />
-            <p className="text-sm text-muted-foreground">Входим через Telegram…</p>
+            <p className="text-sm text-muted-foreground">{t(lang, "login.signingIn")}</p>
             {slowHint && (
               <p className="mt-1 rounded-xl bg-[#2E2210]/95 p-3 text-xs text-[#E3D0A6]">
-                Вход затянулся. Закрой студию и открой её через бота ещё раз
-                (кнопка «Открыть студию»), либо открой сайт в обычном браузере.
+                {t(lang, "login.slowHint")}
               </p>
             )}
           </>
@@ -426,11 +516,7 @@ function LoginScreen({
     action = (
       <div className="flex items-start gap-2 rounded-xl bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-        <span>
-          Студия открылась внутри Telegram без автоматического входа. Закрой этот экран
-          и в чате с ботом нажми кнопку <b>«Открыть студию»</b> (внизу слева от поля ввода) —
-          тогда вход пройдёт сам, без кодов и подтверждений.
-        </span>
+        <span>{t(lang, "login.tgBrowser")}</span>
       </div>
     );
   } else if (tgEnv === "regular") {
@@ -439,7 +525,7 @@ function LoginScreen({
         {/* Здесь появится кнопка Telegram Login (iframe виджета) */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          Загружаем кнопку входа Telegram…
+          {t(lang, "login.loadingBtn")}
         </div>
       </div>
     );
@@ -447,7 +533,7 @@ function LoginScreen({
     action = (
       <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-        Определяем способ входа…
+        {t(lang, "login.detecting")}
       </div>
     );
   }
@@ -455,51 +541,46 @@ function LoginScreen({
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
       <div className="green-card pop-in w-full max-w-md rounded-3xl p-6 sm:p-8">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="relative">
-            <div className="rounded-2xl bg-gradient-to-br from-[#B98A2E] via-[#D4A437] to-[#F6B93B] p-2 shadow-lg shadow-[#D4A437]/30">
-              <Sparkles className="h-6 w-6 text-white" aria-hidden />
+        <div className="mb-5 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="rounded-2xl bg-gradient-to-br from-[#B98A2E] via-[#D4A437] to-[#F6B93B] p-2 shadow-lg shadow-[#D4A437]/30">
+                <Sparkles className="h-6 w-6 text-white" aria-hidden />
+              </div>
+              <Sparkles
+                aria-hidden
+                className="twinkle absolute -right-2 -top-2 h-3.5 w-3.5 text-[#F6B93B]"
+                style={{ animationDuration: "2.2s" }}
+              />
             </div>
-            <Sparkles
-              aria-hidden
-              className="twinkle absolute -right-2 -top-2 h-3.5 w-3.5 text-[#F6B93B]"
-              style={{ animationDuration: "2.2s" }}
-            />
+            <div>
+              <p className="font-serif text-2xl font-semibold leading-none">
+                <span className="brand-text">GlamAI Studio</span>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{t(lang, "app.tagline")}</p>
+            </div>
           </div>
-          <div>
-            <p className="font-serif text-2xl font-semibold leading-none">
-              <span className="brand-text">GlamAI Studio</span>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">ИИ-визажист для студии макияжа</p>
-          </div>
+          <LangPicker />
         </div>
 
         <h1 className="font-serif text-2xl font-bold leading-snug text-[#F8F1E1]">
-          Примерка макияжа для ваших клиенток — за 30 секунд
+          {t(lang, "login.h1")}
         </h1>
         <ul className="mt-4 space-y-2 text-sm text-[#F8F1E1]/85">
-          <li className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
-            5 бесплатных образов — без карты и обязательств
-          </li>
-          <li className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
-            Палитра профессиональных оттенков или перенос макияжа с референса
-          </li>
-          <li className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
-            Лицо клиента сохраняется, фото не хранятся на сервере
-          </li>
-          <li className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
-            Показывайте клиентке варианты до встречи — она приходит с готовым решением
-          </li>
+          {["login.b1", "login.b2", "login.b3", "login.b4"].map((key) => (
+            <li key={key} className="flex items-start gap-2">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
+              {t(lang, key)}
+            </li>
+          ))}
         </ul>
 
         {authError && (
           <div className="mt-5 flex items-start gap-2 rounded-xl border border-[#F6B93B]/40 bg-[#2E2210]/95 p-3 text-sm text-[#F3E2B9]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <span>{AUTH_ERRORS[authError] ?? "Не удалось войти. Попробуйте ещё раз."}</span>
+            <span>
+              {t(lang, authError === "config" ? "authErr.config" : authError === "telegram" ? "authErr.telegram" : authError === "db" ? "authErr.db" : "authErr.default")}
+            </span>
           </div>
         )}
 
@@ -508,7 +589,7 @@ function LoginScreen({
           {botUsername && (
             <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
               <LogIn className="h-3.5 w-3.5" aria-hidden />
-              Вход подтверждает, что вы мастер. Клиентские фото не сохраняются.
+              {t(lang, "login.confirmNote")}
             </p>
           )}
           {me?.dbHint && (
@@ -529,24 +610,28 @@ function LoginScreen({
 
 const PLANS: Array<{
   key: "start" | "salon";
-  title: string;
+  /** Ключ названия в словаре (pw.planStart.title / pw.planSalon.title) */
+  titleKey: string;
   accent: string;
   priceCls: string;
-  perks: string[];
+  perkKeys: string[];
+  /** «/мес» у цены — только у месячного «Салона» */
+  perMonth?: boolean;
 }> = [
   {
     key: "start",
-    title: "Старт",
+    titleKey: "pw.planStart.title",
     accent: "border-[#F8F1E1]/25",
     priceCls: "text-[#F8F1E1]",
-    perks: ["до 60 образов в месяц", "палитра + референсы", "для одного мастера"],
+    perkKeys: ["pw.perk.start1", "pw.perk.start2", "pw.perk.start3"],
   },
   {
     key: "salon",
-    title: "Салон",
+    titleKey: "pw.planSalon.title",
     accent: "border-[#F6B93B]/50",
     priceCls: "text-[#F6B93B]",
-    perks: ["до 200 образов в месяц", "для студии и нескольких мастеров", "приоритетная помощь"],
+    perkKeys: ["pw.perk.salon1", "pw.perk.salon2", "pw.perk.salon3"],
+    perMonth: true,
   },
 ];
 
@@ -560,18 +645,24 @@ function PaywallDialog({
   ownerTg,
   pay,
   profile,
+  refresh,
 }: {
   payload: PaywallPayload | null;
   onClose: () => void;
   ownerTg: string;
   pay?: PayInfo;
   profile: GlamProfile | null;
+  refresh: () => Promise<void>;
 }) {
+  const { lang } = useLang();
   const [copied, setCopied] = useState<"phone" | "card" | null>(null);
   const [qrData, setQrData] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [isMobile, setIsMobile] = useState(true);
   const [pcNote, setPcNote] = useState<string | null>(null);
+  // v49: покупка пакета Звёздами — какой счёт открываем, что показать в ответ
+  const [paying, setPaying] = useState<PackId | null>(null);
+  const [packNote, setPackNote] = useState<string | null>(null);
   const requisitesReady = pay ? payInfoComplete(pay) : false;
   const qrPayload = pay ? payQrPayload(pay) : "";
   const isOpen = payload !== null;
@@ -629,6 +720,7 @@ function PaywallDialog({
   // Готовый текст заявки — у каждого тарифа свой
   const planMessage = (planKey: "start" | "salon"): string => {
     const price = PLAN_PRICES[planKey];
+    const term = planKey === "start" ? "разово (46 генераций)" : "в месяц (170 генераций)";
     const me = [
       profile?.username ? `@${profile.username}` : null,
       profile?.telegramId ? `ID ${profile.telegramId}` : null,
@@ -636,12 +728,66 @@ function PaywallDialog({
       .filter(Boolean)
       .join(", ");
     return (
-      `Здравствуйте! Хочу подписку «${planKey === "start" ? "Старт" : "Салон"}" ` +
-      `GlamAI Studio — ${fmtRub(price)} ₽/мес${me ? `. Я: ${me}` : ""}. ` +
+      `Здравствуйте! Хочу тариф «${planKey === "start" ? "Старт" : "Салон"}» ` +
+      `GlamAI Studio — ${fmtRub(price)} ₽ ${term}${me ? `. Я: ${me}` : ""}. ` +
       `Сейчас переведу оплату по реквизитам и пришлю сюда скриншот чека.`
     );
   };
 
+
+  // v49: купить пакет Звёздами Telegram. Сервер создаёт счёт (createInvoiceLink,
+  // валюта XTR), мы открываем его через WebApp.openInvoice — окно оплаты внутри
+  // Telegram. Зачисление происходит на сервере (webhook successful_payment);
+  // после закрытия окна просто обновляем профиль — остаток подтянется.
+  const buyStars = async (packId: PackId): Promise<void> => {
+    setPaying(packId);
+    setPackNote(null);
+    try {
+      const res = await fetch("/api/pay/stars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pack: packId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        url?: string;
+        message?: string;
+        code?: string;
+      };
+      if (!data.ok || !data.url) {
+        // Текст ошибки локализуем на клиенте по коду (сервер не знает язык UI).
+        const codeKey: Record<string, string> = {
+          session: "pw.sessionNote",
+          pack: "pw.packErr",
+          not_configured: "pw.notConfigured",
+          invoice: "pw.invoiceErr",
+        };
+        setPackNote(
+          (data.code && codeKey[data.code] && t(lang, codeKey[data.code])) ||
+            data.message ||
+            t(lang, "pw.failNote")
+        );
+        return;
+      }
+      const app = getTelegramWebApp();
+      if (app?.openInvoice) {
+        app.openInvoice(data.url, () => {
+          // Окно закрылось (оплачено, отменено или ошибка) — остаток обновится,
+          // если платёж прошёл. Держим паузу: webhook успевает зачислить.
+          setTimeout(() => void refresh(), 1200);
+        });
+      } else {
+        // Старые клиенты Telegram без openInvoice: открываем счёт как ссылку
+        window.open(data.url, "_blank", "noopener");
+        setPackNote(t(lang, "pw.tabNote"));
+        setTimeout(() => void refresh(), 8000);
+      }
+    } catch {
+      setPackNote(t(lang, "pw.netNote"));
+    } finally {
+      setPaying(null);
+    }
+  };
 
   // Открыть чат владельца с готовым текстом заявки — БЕЗ перехвата ссылок.
   // Внутри Telegram используем штатный WebApp.openTelegramLink: Telegram сам
@@ -678,24 +824,26 @@ function PaywallDialog({
     }
     // ПК в обычном браузере: t.me перехватывается сторонними клиентами (Unigram)
     void navigator.clipboard?.writeText(planMessage(planKey)).catch(() => {});
-    setPcNote(
-      "Открываем Telegram Web — текст заявки уже скопирован, вставьте его в чат (Ctrl+V)."
-    );
+    setPcNote(t(lang, "pw.pcNote"));
     window.open(`https://web.telegram.org/k/#@${owner}`, "_blank", "noopener");
   };
 
   return (
     <Dialog open={payload !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="green-card max-h-[92vh] max-w-lg overflow-y-auto rounded-3xl border-[#F8F1E1]/25 p-6 sm:p-7">
-        <DialogHeader>
-          <DialogTitle className="font-serif text-xl font-bold text-[#F8F1E1]">
-            {payload?.title ?? "Пробные образы закончились"}
-          </DialogTitle>
-          <DialogDescription className="text-sm text-[#F8F1E1]/80">
-            {payload?.message ??
-              "Выберите тариф, переведите оплату по реквизитам и отправьте чек в чат — включу подписку."}
-          </DialogDescription>
-        </DialogHeader>
+        <div className="flex items-start justify-between gap-2">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="font-serif text-xl font-bold text-[#F8F1E1]">
+              {payload?.title ?? t(lang, "pw.titleDefault")}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#F8F1E1]/80">
+              {payload?.message ?? t(lang, "pw.msgDefault")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-1 shrink-0">
+            <LangPicker />
+          </div>
+        </div>
 
         {/* v41: студия-источник — на самом горячем моменте ведём к записи,
             а не к оплате: клиентке подписка не нужна, нужен мастер. */}
@@ -705,11 +853,10 @@ function PaywallDialog({
             data-testid="studio-booking"
           >
             <p className="text-sm font-bold text-[#F8F1E1]">
-              Образ выбран — запишитесь в «{profile.studio.name}»
+              {t(lang, "pw.studioTitle", { name: profile.studio.name })}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-[#F8F1E1]/75">
-              Пробные образы были бесплатны — за счёт GlamAI Studio. Дальше — визажист студии:
-              он воплотит выбранный образ.
+              {t(lang, "pw.studioDesc")}
             </p>
             {profile.studio.bookingUrl ? (
               <a
@@ -720,7 +867,7 @@ function PaywallDialog({
               >
                 <Button className="glam-btn h-11 w-full text-sm font-bold" data-testid="studio-book">
                   <Sparkles className="h-4 w-4" aria-hidden />
-                  Записаться в «{profile.studio.name}»
+                  {t(lang, "banner.bookIn", { name: profile.studio.name })}
                 </Button>
               </a>
             ) : profile.studio.note ? (
@@ -731,17 +878,76 @@ function PaywallDialog({
           </div>
         )}
 
+        {/* v49: розничные пакеты — мгновенная оплата Звёздами Telegram.
+            Это главный путь: без чатов, чеков и ручного включения. */}
+        <div
+          className="mt-2 rounded-2xl border border-[#F6B93B]/45 bg-[#043E21]/70 p-4"
+          data-testid="stars-packs"
+        >
+          <p className="font-serif text-lg font-bold text-[#F8F1E1]">
+            {t(lang, "pw.packsTitle")}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-[#F8F1E1]/75">
+            {t(lang, "pw.packsDesc")}
+          </p>
+          <div className="mt-3 space-y-2">
+            {RETAIL_PACKS.map((p) => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-3 rounded-xl border p-3 ${
+                  p.best
+                    ? "border-[#F6B93B]/50 bg-[#06301B]/85"
+                    : "border-[#F8F1E1]/15 bg-[#06301B]/60"
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-[#F8F1E1]">
+                    {packTitle(lang, p.id)}
+                    {p.best ? ` · ${t(lang, "pw.pack.best")}` : ""}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#F8F1E1]/75">
+                    {genCount(lang, p.generations)} · {t(lang, `pw.pack.${p.id}.perk`)}
+                  </p>
+                </div>
+                <Button
+                  className="glam-btn h-10 shrink-0 px-3 text-xs font-bold"
+                  disabled={paying !== null}
+                  onClick={() => void buyStars(p.id)}
+                  data-testid={`buy-${p.id}`}
+                >
+                  <Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  {paying === p.id
+                    ? t(lang, "pw.opening")
+                    : lang === "ru"
+                      ? `${fmtRub(p.rub)} ₽ · ${p.stars} ★`
+                      : `${p.stars} ★`}
+                </Button>
+              </div>
+            ))}
+          </div>
+          {packNote && (
+            <p className="mt-2 rounded-xl border border-[#F8F1E1]/20 bg-[#2E2210]/90 p-2.5 text-xs text-[#F8F1E1]/90">
+              {packNote}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-[#F8F1E1]/60">{t(lang, "pw.starsNote")}</p>
+        </div>
+
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           {PLANS.map((p) => (
             <div key={p.key} className={`rounded-2xl border bg-[#043E21]/70 p-4 ${p.accent}`}>
-              <p className="font-serif text-lg font-bold text-[#F8F1E1]">{p.title}</p>
+              <p className="font-serif text-lg font-bold text-[#F8F1E1]">{t(lang, p.titleKey)}</p>
               <p className="mt-1 font-serif text-2xl font-bold text-[#F8F1E1]">
                 <span className={p.priceCls}>{fmtRub(PLAN_PRICES[p.key])} ₽</span>
-                <span className="text-sm font-normal text-[#F8F1E1]/70"> / мес</span>
+                {p.perMonth ? (
+                  <span className="text-sm font-normal text-[#F8F1E1]/70"> {t(lang, "pw.perMonth")}</span>
+                ) : (
+                  <span className="text-sm font-normal text-[#F8F1E1]/70"> {t(lang, "pw.once")}</span>
+                )}
               </p>
               <ul className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
-                {p.perks.map((perk) => (
-                  <li key={perk}>· {perk}</li>
+                {p.perkKeys.map((perkKey) => (
+                  <li key={perkKey}>· {t(lang, perkKey)}</li>
                 ))}
               </ul>
               {ownerTg ? (
@@ -751,26 +957,29 @@ function PaywallDialog({
                   data-testid={`pay-${p.key}`}
                 >
                   <Sparkles className="h-4 w-4" aria-hidden />
-                  Выбрать {p.title} — {fmtRub(PLAN_PRICES[p.key])} ₽
+                  {t(lang, "pw.choose", { title: t(lang, p.titleKey), price: fmtRub(PLAN_PRICES[p.key]) })}
                 </Button>
               ) : null}
             </div>
           ))}
         </div>
+        <p className="mt-1 text-center text-xs text-[#F8F1E1]/60">
+          {t(lang, "pw.manualNote")}
+        </p>
 
         {/* Подсказка для ПК (обычный браузер): чат откроется в Telegram Web */}
         {pcNote && (
           <p className="mt-2 rounded-xl border border-[#F8F1E1]/20 bg-[#06301B]/80 p-2.5 text-center text-xs text-[#F8F1E1]/85">
-            {pcNote}
+            {t(lang, "pw.pcNote")}
           </p>
         )}
         {/* Реквизиты: клиент видит КУДА и СКОЛЬКО переводить */}
         <div className="mt-3 rounded-2xl border border-[#F8F1E1]/20 bg-[#06301B]/80 p-4" data-testid="pay-requisites">
-          <p className="text-sm font-bold text-[#F8F1E1]">Как оплатить</p>
+          <p className="text-sm font-bold text-[#F8F1E1]">{t(lang, "req.title")}</p>
           {pay?.link && (
             <a href={pay.link} target="_blank" rel="noreferrer" className="mt-3 block" data-testid="pay-sbp-link">
               <Button className="glam-btn h-11 w-full text-sm font-bold">
-                Оплатить переводом по ссылке (СБП)
+                {t(lang, "req.sbpBtn")}
               </Button>
             </a>
           )}
@@ -779,40 +988,40 @@ function PaywallDialog({
               <ol className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
                 {pay.link ? (
                   <>
-                    <li>1. Нажмите кнопку выше — банк сам подставит сумму, подтвердите перевод.</li>
-                    <li>2. Нажмите «Выбрать тариф» — откроется чат, отправьте скриншот чека.</li>
-                    <li>3. Подписка включается вручную, обычно за 5–15 минут.</li>
+                    <li>{t(lang, "req.stepLink1")}</li>
+                    <li>{t(lang, "req.stepLink2")}</li>
+                    <li>{t(lang, "req.stepLink3")}</li>
                   </>
                 ) : pay.phone ? (
                   <>
-                    <li>1. В приложении СВОЕГО банка выберите «Перевести по номеру телефона (СБП)».</li>
-                    <li>2. Введите номер телефона ниже, сумма — как у выбранного тарифа. Банк покажет имя получателя для проверки.</li>
-                    <li>3. Нажмите «Выбрать тариф» — откроется чат, отправьте скриншот чека.</li>
-                    <li>4. Подписка включается вручную, обычно за 5–15 минут.</li>
+                    <li>{t(lang, "req.stepPhone1")}</li>
+                    <li>{t(lang, "req.stepPhone2")}</li>
+                    <li>{t(lang, "req.stepPhone3")}</li>
+                    <li>{t(lang, "req.stepPhone4")}</li>
                   </>
                 ) : (
                   <>
-                    <li>1. Переведите сумму за месяц по реквизитам ниже.</li>
-                    <li>2. Нажмите «Выбрать тариф» — откроется чат, отправьте скриншот чека.</li>
-                    <li>3. Подписка включается вручную, обычно за 5–15 минут.</li>
+                    <li>{t(lang, "req.stepCard1")}</li>
+                    <li>{t(lang, "req.stepCard2")}</li>
+                    <li>{t(lang, "req.stepCard3")}</li>
                   </>
                 )}
               </ol>
               <div className="mt-3 space-y-1.5 text-sm text-[#F8F1E1]">
                 {pay.bank && (
                   <p>
-                    <span className="text-[#F8F1E1]/60">Банк:</span> {pay.bank}
+                    <span className="text-[#F8F1E1]/60">{t(lang, "req.bank")}:</span> {pay.bank}
                   </p>
                 )}
                 {pay.holder && (
                   <p>
-                    <span className="text-[#F8F1E1]/60">Получатель:</span> {pay.holder}
+                    <span className="text-[#F8F1E1]/60">{t(lang, "req.holder")}:</span> {pay.holder}
                   </p>
                 )}
                 {pay.phone && (
                   <div className="flex items-center gap-2">
                     <p>
-                      <span className="text-[#F8F1E1]/60">Телефон (СБП):</span>{" "}
+                      <span className="text-[#F8F1E1]/60">{t(lang, "req.phone")}:</span>{" "}
                       <b className="font-mono tracking-wider">{pay.phone}</b>
                     </p>
                     <Button
@@ -820,16 +1029,16 @@ function PaywallDialog({
                       size="sm"
                       onClick={() => void copyText(pay.phone, "phone")}
                       className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
-                      aria-label="Скопировать телефон"
+                      aria-label={t(lang, "req.copyPhoneAria")}
                     >
-                      {copied === "phone" ? "Скопировано ✓" : "Копировать"}
+                      {copied === "phone" ? t(lang, "req.copied") : t(lang, "req.copy")}
                     </Button>
                   </div>
                 )}
                 {pay.card && (
                   <div className="flex items-center gap-2">
                     <p>
-                      <span className="text-[#F8F1E1]/60">Карта:</span>{" "}
+                      <span className="text-[#F8F1E1]/60">{t(lang, "req.card")}:</span>{" "}
                       <b className="font-mono tracking-wider">{pay.card}</b>
                     </p>
                     <Button
@@ -837,9 +1046,9 @@ function PaywallDialog({
                       size="sm"
                       onClick={() => void copyText(pay.card, "card")}
                       className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
-                      aria-label="Скопировать номер карты"
+                      aria-label={t(lang, "req.copyCardAria")}
                     >
-                      {copied === "card" ? "Скопировано ✓" : "Копировать"}
+                      {copied === "card" ? t(lang, "req.copied") : t(lang, "req.copy")}
                     </Button>
                   </div>
                 )}
@@ -848,21 +1057,21 @@ function PaywallDialog({
           ) : (
             <ol className="mt-2 space-y-1 text-sm text-[#F8F1E1]/85">
               {pay?.link ? (
-                <li>1. Нажмите кнопку выше — банк сам подставит сумму, подтвердите перевод.</li>
+                <li>{t(lang, "req.stepLink1")}</li>
               ) : (
-                <li>1. Нажмите «Выбрать тариф» — откроется чат с владельцем студии.</li>
+                <li>{t(lang, "req.stepNone1")}</li>
               )}
               <li>
-                2. {pay?.link ? "Пришлите скриншот чека в чат с владельцем." : "Вам пришлют реквизиты для перевода."}
+                2. {pay?.link ? t(lang, "req.stepNone2b") : t(lang, "req.stepNone2")}
               </li>
-              <li>3. После оплаты подписку включат за 5–15 минут.</li>
+              <li>3. {t(lang, "req.stepNone3")}</li>
             </ol>
           )}
           {/* QR-код оплаты: со ссылки банка или с телефона СБП */}
           {qrPayload && (
             <div className="mt-3 rounded-xl border border-[#F8F1E1]/15 bg-[#043E21]/60 p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-[#F8F1E1]">QR-код для оплаты</p>
+                <p className="text-sm font-semibold text-[#F8F1E1]">{t(lang, "req.qrTitle")}</p>
                 {isMobile && (
                   <Button
                     variant="outline"
@@ -871,7 +1080,7 @@ function PaywallDialog({
                     className="h-7 shrink-0 border-[#F8F1E1]/30 px-2 text-xs text-[#F8F1E1] hover:bg-white/10"
                     data-testid="pay-qr-toggle"
                   >
-                    {showQr ? "Скрыть QR-код" : "Показать QR-код"}
+                    {showQr ? t(lang, "req.qrHide") : t(lang, "req.qrShow")}
                   </Button>
                 )}
               </div>
@@ -879,12 +1088,10 @@ function PaywallDialog({
                 <div className="mt-2 flex flex-col items-center gap-2" data-testid="pay-qr">
                   <span className="rounded-2xl bg-white p-2 shadow">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={qrData} alt="QR-код для оплаты" className="h-40 w-40" />
+                    <img src={qrData} alt={t(lang, "req.qrTitle")} className="h-40 w-40" />
                   </span>
                   <p className="text-center text-xs text-[#F8F1E1]/70" data-testid="pay-qr-caption">
-                    {pay?.link
-                      ? "С другого телефона или с компьютера: наведите камеру — банк откроется сразу с переводом."
-                      : "С другого телефона или с компьютера: наведите камеру — появится номер для перевода по СБП, вставьте его в своём банке."}
+                    {pay?.link ? t(lang, "req.qrCapLink") : t(lang, "req.qrCapPhone")}
                   </p>
                 </div>
               )}
@@ -892,15 +1099,13 @@ function PaywallDialog({
           )}
           {!requisitesReady && (
             <p className="mt-2 rounded-xl bg-[#2E2210]/95 p-2.5 text-xs text-[#E3D0A6]">
-              Реквизиты не заданы на сервере. Владелец: добавьте PAYMENT_PHONE (перевод
-              по СБП) и/или PAYMENT_BANK, PAYMENT_CARD_NUMBER, PAYMENT_CARD_OWNER в Vercel →
-              Settings → Environment Variables и сделайте Redeploy — реквизиты появятся здесь.
+              {t(lang, "req.notSet")}
             </p>
           )}
         </div>
 
         <p className="mt-2 text-center text-xs text-muted-foreground">
-          Оплата переводом с чеком. Автооплата картами (ЮKassa) — скоро.
+          {t(lang, "pw.footer")}
         </p>
       </DialogContent>
     </Dialog>

@@ -13,8 +13,10 @@ import {
   grantPlan,
   importStudios,
   listPayRequests,
+  listPayments,
   listStudios,
   listUsers,
+  paymentsStats,
   resetTrial,
   revokeSubscription,
   setPayRequestStatus,
@@ -22,6 +24,7 @@ import {
   startStats,
   upsertStudio,
 } from "@/lib/store";
+import { suggestWebhookSecret, tgCall, webhookSecret } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 
@@ -42,15 +45,18 @@ export async function GET(req: NextRequest) {
     return unauthorized();
   }
   try {
-    const [users, stats, requests, studios, starts] = await Promise.all([
+    const [users, stats, requests, studios, starts, payments, payStats] = await Promise.all([
       listUsers(200),
       adminStats(),
       listPayRequests(20),
       listStudios(100),
       startStats(12),
+      listPayments(20),
+      paymentsStats(),
     ]);
     // pay — публичные реквизиты оплаты (для QR), requests — заявки на подписку,
-    // studios — студии-партнёры v41, starts — панель открытий v47.
+    // studios — студии-партнёры v41, starts — панель открытий v47,
+    // payments/payStats — Stars-платежи v49.
     // botUsername — для сборки ссылок
     // t.me/<bot>?start=studio_<slug> для кнопки на сайте студии.
     return NextResponse.json({
@@ -61,6 +67,9 @@ export async function GET(req: NextRequest) {
       requests,
       studios,
       starts,
+      payments,
+      payStats,
+      webhookSecretSet: webhookSecret().length > 0,
       botUsername: process.env.TELEGRAM_BOT_USERNAME?.trim() ?? "",
     });
   } catch (err) {
@@ -211,6 +220,50 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "Заявка не найдена или уже обработана." }, { status: 404 });
       }
       return NextResponse.json({ ok: true, id });
+    }
+    if (body.action === "webhook_setup") {
+      // v49: подключаем приём платежей — setWebhook на /api/telegram/webhook.
+      // Адрес: публичный адрес этой админки (origin запроса) либо APP_URL.
+      const secret = webhookSecret();
+      if (!secret) {
+        return NextResponse.json({
+          ok: false,
+          needSecret: true,
+          suggest: suggestWebhookSecret(),
+          error:
+            "Сначала добавь в Vercel переменную TELEGRAM_WEBHOOK_SECRET (значение ниже), сделай Redeploy и нажми кнопку ещё раз.",
+        });
+      }
+      const origin =
+        process.env.APP_URL?.trim() ||
+        req.headers.get("origin") ||
+        new URL(req.url).origin;
+      const base = origin.replace(/\/$/, "");
+      if (!/^https:\/\//.test(base)) {
+        return NextResponse.json({
+          ok: false,
+          error: "Webhook требует https. Открой админку по публичному адресу Vercel и нажми кнопку там.",
+        });
+      }
+      const hookUrl = `${base}/api/telegram/webhook`;
+      const set = await tgCall("setWebhook", {
+        url: hookUrl,
+        secret_token: secret,
+        allowed_updates: ["pre_checkout_query", "message"],
+        drop_pending_updates: false,
+      });
+      if (!set.ok) {
+        return NextResponse.json(
+          { ok: false, error: `Telegram не принял webhook: ${set.description ?? "неизвестная ошибка"}` },
+          { status: 502 }
+        );
+      }
+      const info = await tgCall("getWebhookInfo", {});
+      return NextResponse.json({ ok: true, url: hookUrl, info: info.result ?? null });
+    }
+    if (body.action === "webhook_info") {
+      const info = await tgCall("getWebhookInfo", {});
+      return NextResponse.json({ ok: true, info: info.result ?? null });
     }
     return NextResponse.json({ ok: false, error: "Неизвестное действие." }, { status: 400 });
   } catch (err) {

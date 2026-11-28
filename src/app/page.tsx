@@ -20,7 +20,10 @@ import {
   type FaceProductId,
   type ProductState,
 } from "@/lib/makeup";
-import AuthGate, { openTelegramChat, useAuth } from "@/components/glam/AuthGate";
+import AuthGate, { openTelegramChat, useAuth, useLang } from "@/components/glam/AuthGate";
+import { genCount, planTitle, t } from "@/lib/i18n";
+import { STARS_FIVE74 } from "@/lib/tariffs";
+import { LangPicker } from "@/components/glam/AuthGate";
 
 type Mode = "prompt" | "reference";
 
@@ -64,9 +67,14 @@ function BackgroundDecor() {
   );
 }
 
-function fmtUntil(iso: string | null): string {
+const MONTH_LOCALE: Record<string, string> = { ru: "ru-RU", en: "en-US", de: "de-DE", fr: "fr-FR" };
+
+function fmtUntil(iso: string | null, lang: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  return new Date(iso).toLocaleDateString(MONTH_LOCALE[lang] ?? "ru-RU", {
+    day: "numeric",
+    month: "short",
+  });
 }
 
 /** Заголовок секции с цветным маркером */
@@ -92,6 +100,7 @@ export default function Home() {
 
 function Studio() {
   const { profile, refresh, openPaywall, ownerTg, maxLink } = useAuth();
+  const { lang } = useLang();
   const [mode, setMode] = useState<Mode>("prompt");
   const [modelPhoto, setModelPhoto] = useState<PhotoValue | null>(null);
   const [refPhoto, setRefPhoto] = useState<PhotoValue | null>(null);
@@ -120,7 +129,7 @@ function Studio() {
       .then((d: { status?: string; checks?: HealthCheck[] }) => {
         if (cancelled || d.status !== "config-error") return;
         const failed = d.checks?.filter((c) => !c.ok) ?? [];
-        setConfigIssue(failed.map((c) => c.hint).join(" ") || "Ключ доступа к ИИ не настроен.");
+        setConfigIssue(failed.map((c) => c.hint).join(" ") || t("ru", "err.service"));
       })
       .catch(() => {
         // сервер недоступен — покажем ошибку при попытке генерации
@@ -150,23 +159,24 @@ function Studio() {
     );
   }, []);
 
-  const showError = useCallback((message: string) => {
-    toast({ title: "Не получилось", description: message, variant: "destructive" });
-  }, []);
+  const showError = useCallback(
+    (message: string) => {
+      toast({ title: t(lang, "toast.failTitle"), description: message, variant: "destructive" });
+    },
+    [lang]
+  );
 
   const generate = useCallback(async () => {
     if (loading) return;
 
     if (!modelPhoto) {
       showError(
-        mode === "reference"
-          ? "Загрузите оригинальное фото клиента."
-          : "Загрузите фото модели."
+        mode === "reference" ? t(lang, "err.noModelRef") : t(lang, "err.noModelPrompt")
       );
       return;
     }
     if (mode === "reference" && !refPhoto) {
-      showError("Загрузите референс — фото с образцом макияжа.");
+      showError(t(lang, "err.noRef"));
       return;
     }
     if (mode === "prompt") {
@@ -174,9 +184,7 @@ function Studio() {
         Object.values(face).some((p) => p.enabled) ||
         Object.values(eyes).some((e) => e.enabled);
       if (!anyEnabled && !promptText.trim()) {
-        showError(
-          "Включите хотя бы один продукт в блоках «Лицо» или «Глаза» или опишите образ словами."
-        );
+        showError(t(lang, "err.noSelection"));
         return;
       }
     }
@@ -209,8 +217,12 @@ function Studio() {
       // Лимит исчерпан — сервер возвращает 402 с paywall: открываем окно тарифов
       if (res.status === 402) {
         try {
-          const pay = (await res.json()) as { error?: string };
-          openPaywall({ message: pay.error });
+          const pay = (await res.json()) as {
+            error?: string;
+            allowance?: { reason?: string };
+          };
+          const key = pay.allowance?.reason === "quota_exhausted" ? "pw.paywallQuota" : "pw.paywallTrial";
+          openPaywall({ message: t(lang, key) });
         } catch {
           openPaywall({});
         }
@@ -218,7 +230,7 @@ function Studio() {
         return;
       }
       if (res.status === 401) {
-        throw new Error("Сессия истекла — обновите страницу и войдите через Telegram заново.");
+        throw new Error(t(lang, "err.session"));
       }
 
       // Платформа может вернуть не JSON (HTML-страницу ошибки Vercel/прокси) —
@@ -229,27 +241,25 @@ function Studio() {
         data = JSON.parse(rawText) as TryonResponse;
       } catch {
         if (res.status === 502 || res.status === 503 || res.status === 504) {
-          throw new Error(
-            "Сервер не успел обработать запрос (таймаут платформы). Попробуйте ещё раз — обычно вторая попытка проходит."
-          );
+          throw new Error(t(lang, "err.timeout"));
         }
         if (res.status === 413) {
-          throw new Error("Фото слишком большое для отправки. Уменьшите размер файла и попробуйте снова.");
+          throw new Error(t(lang, "err.tooLarge"));
         }
-        throw new Error(`Сервис вернул ошибку ${res.status}. Попробуйте ещё раз чуть позже.`);
+        throw new Error(t(lang, "err.http", { code: res.status }));
       }
       if (!res.ok || !data.success || !data.image) {
-        throw new Error(data.error || "Сервис ИИ временно недоступен, попробуйте позже.");
+        throw new Error(data.error || t(lang, "err.service"));
       }
 
       setResult(data.image);
       setUsedPrompt(data.prompt ?? null);
       setUsedDescription(data.description ?? null);
       setPortraitMode(data.pipeline === "portrait");
-      toast({ title: "Образ готов ✨", description: "Сравните «до и после» и сохраните." });
+      toast({ title: t(lang, "toast.readyTitle"), description: t(lang, "toast.readyDesc") });
       void refresh(); // обновляем счётчик оставшихся генераций
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Неизвестная ошибка");
+      showError(e instanceof Error ? e.message : t(lang, "err.unknown"));
     } finally {
       setLoading(false);
     }
@@ -268,6 +278,7 @@ function Studio() {
     showError,
     openPaywall,
     refresh,
+    lang,
   ]);
 
   const logout = useCallback(async () => {
@@ -293,12 +304,9 @@ function Studio() {
         checked={fastMode}
         onCheckedChange={(v) => setFastMode(v === true)}
         className="mt-0.5"
-        aria-label="Быстрый режим без проверки качества"
+        aria-label={t(lang, "gen.fastModeAria")}
       />
-      <span>
-        Быстрый режим — без проверки качества. Тратит в 4 раза меньше лимита ИИ;
-        включайте, если ловите «слишком много запросов».
-      </span>
+      <span>{t(lang, "gen.fastMode")}</span>
     </label>
   );
 
@@ -307,12 +315,12 @@ function Studio() {
       {loading ? (
         <>
           <Loader2 className="h-5 w-5 animate-spin" />
-          ИИ наносит макияж…
+          {t(lang, "gen.loading")}
         </>
       ) : (
         <>
           <Sparkles className="h-5 w-5" />
-          Создать образ
+          {t(lang, "gen.btn")}
         </>
       )}
     </Button>
@@ -346,13 +354,13 @@ function Studio() {
                 <span className="brand-text">GlamAI Studio</span>
               </p>
               <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">
-                ИИ-визажист для студии макияжа
+                {t(lang, "app.tagline")}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden rounded-full border border-[#F8F1E1]/35 bg-white/10 px-3 py-1 text-[11px] text-[#F8F1E1] lg:inline-block">
-              Фото не сохраняются · обработка в момент запроса
+              {t(lang, "app.privacyChip")}
             </span>
             {profile && (
               <span
@@ -360,19 +368,20 @@ function Studio() {
                 data-testid="quota-chip"
               >
                 {profile.subscriptionActive
-                  ? `${profile.planLabel} · до ${fmtUntil(profile.subscriptionUntil)}`
-                  : `Пробные: ${profile.remaining} из ${profile.total}`}
+                  ? `${planTitle(lang, profile.plan)} · ${t(lang, "app.until", { d: fmtUntil(profile.subscriptionUntil, lang) })}`
+                  : t(lang, "app.trialChip", { n: profile.remaining, t: profile.total })}
               </span>
             )}
             <button
               type="button"
               onClick={() => void logout()}
-              title="Выйти"
-              aria-label="Выйти"
+              title={t(lang, "app.logout")}
+              aria-label={t(lang, "app.logout")}
               className="rounded-full border border-[#F8F1E1]/35 bg-white/10 p-1.5 text-[#F8F1E1] transition-colors hover:bg-white/20"
             >
               <LogOut className="h-3.5 w-3.5" aria-hidden />
             </button>
+            <LangPicker compact />
           </div>
         </div>
         {/* Шампань-линия под шапкой */}
@@ -385,22 +394,16 @@ function Studio() {
           <div className="mx-auto flex w-full max-w-6xl items-start gap-3 px-4 py-3">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#F6B93B]" />
             <div className="text-sm text-[#F3E2B9]">
-              <p className="font-semibold">ИИ не настроен — генерация пока не сработает</p>
+              <p className="font-semibold">{t(lang, "err.configBanner")}</p>
               <p className="mt-1 text-[#E3D0A6]">{configIssue}</p>
-              <p className="mt-1 text-[#E3D0A6]">
-                Подробная диагностика: откройте{" "}
-                <a href="/api/health" target="_blank" className="underline hover:text-[#F8F1E1]">
-                  /api/health
-                </a>{" "}
-                (после исправления — /api/health?ping=1, он проверит и сам ключ).
-              </p>
+              <p className="mt-1 text-[#E3D0A6]">{t(lang, "err.diag")}</p>
             </div>
             <button
               type="button"
               onClick={() => setConfigIssue(null)}
               className="ml-auto shrink-0 rounded-md px-2 py-1 text-xs text-[#D9C48F] hover:text-[#F8F1E1]"
             >
-              Скрыть
+              {t(lang, "err.hide")}
             </button>
           </div>
         </div>
@@ -416,8 +419,7 @@ function Studio() {
           >
             <Sparkles className="h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
             <p className="min-w-0 flex-1">
-              Вас пригласила студия <b>«{profile.studio.name}»</b> — образы можно примерить прямо
-              здесь, а запись сделать у её мастеров.
+              {t(lang, "strip.invited", { name: profile.studio.name })}
             </p>
             {profile.studio.bookingUrl && (
               <a
@@ -432,7 +434,7 @@ function Studio() {
                   className="shrink-0 border-[#F6B93B]/50 text-[#F8F1E1] hover:bg-white/10"
                   data-testid="studio-book-strip"
                 >
-                  Записаться
+                  {t(lang, "strip.book")}
                 </Button>
               </a>
             )}
@@ -446,10 +448,11 @@ function Studio() {
           >
             <Sparkles className="h-4 w-4 shrink-0 text-[#F6B93B]" aria-hidden />
             <p className="min-w-0 flex-1">
-              Бесплатно: <b>{profile.remaining} из {profile.total}</b> образов
               {profile.remaining > 0
-                ? " — без карты. Дальше — подписка от 690 ₽/мес."
-                : " — пробные образы закончились."}
+                ? t(lang, "banner.free", { n: profile.remaining, t: profile.total }) +
+                  t(lang, "banner.hasLeft", { stars: STARS_FIVE74 })
+                : t(lang, "banner.free", { n: profile.remaining, t: profile.total }) +
+                  t(lang, "banner.expired")}
             </p>
             {profile.remaining === 0 && profile.studio?.bookingUrl && (
               <a
@@ -464,7 +467,7 @@ function Studio() {
                   data-testid="studio-book-banner"
                 >
                   <Sparkles className="h-4 w-4" aria-hidden />
-                  Записаться в «{profile.studio.name}»
+                  {t(lang, "banner.bookIn", { name: profile.studio.name })}
                 </Button>
               </a>
             )}
@@ -481,7 +484,7 @@ function Studio() {
                 data-testid="open-paywall"
               >
                 <Sparkles className="h-4 w-4" aria-hidden />
-                Выбрать тариф
+                {t(lang, "banner.choose")}
               </Button>
             )}
           </div>
@@ -495,13 +498,13 @@ function Studio() {
                   value="prompt"
                   className="rounded-full text-base font-semibold transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#D4A437] data-[state=active]:to-[#F6B93B] data-[state=active]:text-[#043E21] data-[state=active]:shadow-md"
                 >
-                  Промпт и палитра
+                  {t(lang, "tab.prompt")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="reference"
                   className="rounded-full text-base font-semibold transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#D4A437] data-[state=active]:to-[#F6B93B] data-[state=active]:text-[#043E21] data-[state=active]:shadow-md"
                 >
-                  Перенос с референса
+                  {t(lang, "tab.reference")}
                 </TabsTrigger>
               </TabsList>
 
@@ -509,8 +512,8 @@ function Studio() {
               <TabsContent value="prompt" className="mt-4 space-y-4">
                 <section className="green-card pop-in rounded-2xl p-4">
                   <PhotoDropzone
-                    title="Фото модели"
-                    hint="лицо крупным планом, JPEG/PNG"
+                    title={t(lang, "dz.model.title")}
+                    hint={t(lang, "dz.model.hint")}
                     value={modelPhoto}
                     onChange={setModelPhoto}
                     onError={showError}
@@ -522,10 +525,9 @@ function Studio() {
                   className="green-card pop-in rounded-2xl p-4"
                   style={{ animationDelay: "45ms" }}
                 >
-                  <SectionTitle>Стиль, образ</SectionTitle>
+                  <SectionTitle>{t(lang, "sec.style")}</SectionTitle>
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Из выбранного образа ИИ в дальнейшем нанесёт палитру красок: стиль
-                    задаёт плотность и характер всего макияжа.
+                    {t(lang, "sec.styleHint")}
                   </p>
                   <StylePanel style={style} onChange={setStyle} />
                 </section>
@@ -535,9 +537,9 @@ function Studio() {
                   className="green-card pop-in rounded-2xl p-4"
                   style={{ animationDelay: "90ms" }}
                 >
-                  <SectionTitle>Лицо</SectionTitle>
+                  <SectionTitle>{t(lang, "sec.face")}</SectionTitle>
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Включите продукт и выберите оттенок — нанесётся в выбранном стиле.
+                    {t(lang, "sec.faceHint")}
                   </p>
                   <FacePanel
                     face={face}
@@ -552,9 +554,9 @@ function Studio() {
                   className="green-card pop-in rounded-2xl p-4"
                   style={{ animationDelay: "135ms" }}
                 >
-                  <SectionTitle>Глаза</SectionTitle>
+                  <SectionTitle>{t(lang, "sec.eyes")}</SectionTitle>
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Формы стрелок и бровей, техника век — у каждой области своя палитра.
+                    {t(lang, "sec.eyesHint")}
                   </p>
                   <EyePanel
                     eyes={eyes}
@@ -568,19 +570,18 @@ function Studio() {
                   className="green-card pop-in rounded-2xl p-4"
                   style={{ animationDelay: "180ms" }}
                 >
-                  <SectionTitle>Промпт</SectionTitle>
+                  <SectionTitle>{t(lang, "sec.prompt")}</SectionTitle>
                   <Textarea
                     value={promptText}
                     onChange={(e) => setPromptText(e.target.value)}
                     maxLength={800}
                     rows={3}
-                    placeholder="Например: лёгкие смоки-айз в бронзовых тонах, акцент на глаза, нюдовые губы, сияющая кожа…"
+                    placeholder={t(lang, "prompt.placeholder")}
                     className="resize-none border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-base text-[#6F4E37] placeholder:text-[#6F4E37]/55 focus-visible:ring-[#F6B93B]/60"
-                    aria-label="Описание образа"
+                    aria-label={t(lang, "sec.prompt")}
                   />
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Слова из промпта ИИ объединит с выбранными оттенками. Генерация занимает
-                    20–60 секунд.
+                    {t(lang, "prompt.hint")}
                   </p>
                   <div className="mt-3 space-y-2.5">
                     {fastModeToggle}
@@ -593,8 +594,8 @@ function Studio() {
               <TabsContent value="reference" className="mt-4 space-y-4">
                 <section className="green-card pop-in rounded-2xl p-4">
                   <PhotoDropzone
-                    title="Оригинал — фото клиента"
-                    hint="чьё лицо будет в макияже"
+                    title={t(lang, "dz.original.title")}
+                    hint={t(lang, "dz.original.hint")}
                     value={modelPhoto}
                     onChange={setModelPhoto}
                     onError={showError}
@@ -606,8 +607,8 @@ function Studio() {
                   style={{ animationDelay: "90ms" }}
                 >
                   <PhotoDropzone
-                    title="Референс макияжа"
-                    hint="образец: чей макияж переносим"
+                    title={t(lang, "dz.reference.title")}
+                    hint={t(lang, "dz.reference.hint")}
                     value={refPhoto}
                     onChange={setRefPhoto}
                     onError={showError}
@@ -618,18 +619,18 @@ function Studio() {
                   className="green-card pop-in rounded-2xl p-4"
                   style={{ animationDelay: "180ms" }}
                 >
-                  <SectionTitle>Комментарий для ИИ</SectionTitle>
+                  <SectionTitle>{t(lang, "sec.comment")}</SectionTitle>
                   <Textarea
                     value={refComment}
                     onChange={(e) => setRefComment(e.target.value)}
                     maxLength={800}
                     rows={3}
-                    placeholder="Необязательно: например, «сделай губы чуть светлее, а стрелки — тоньше»"
+                    placeholder={t(lang, "comment.placeholder")}
                     className="resize-none border-[#6F4E37]/35 bg-[#F8F1E1]/95 text-base text-[#6F4E37] placeholder:text-[#6F4E37]/55 focus-visible:ring-[#F6B93B]/60"
-                    aria-label="Комментарий к переносу"
+                    aria-label={t(lang, "sec.comment")}
                   />
                   <p className="mt-2 text-sm text-muted-foreground">
-                    ИИ возьмёт макияж с референса и адаптирует его под черты лица на оригинале.
+                    {t(lang, "comment.hint")}
                   </p>
                   <div className="mt-3 space-y-2.5">
                     {fastModeToggle}
@@ -667,9 +668,7 @@ function Studio() {
             className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-2 px-4"
             data-testid="contacts-strip"
           >
-            <p className="text-sm text-muted-foreground">
-              Задать вопрос — поможем с оплатой и подпиской:
-            </p>
+            <p className="text-sm text-muted-foreground">{t(lang, "footer.contact")}</p>
             {ownerTg && (
               <Button
                 size="sm"
@@ -699,8 +698,7 @@ function Studio() {
           </div>
         )}
         <p className="mt-3 text-center text-sm text-muted-foreground">
-          GlamAI Studio · Виртуальная примерка макияжа · Фото обрабатываются в момент запроса
-          и не сохраняются на сервере
+          {t(lang, "footer.legal")}
         </p>
       </footer>
     </div>

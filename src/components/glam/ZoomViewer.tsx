@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Maximize, Minus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { t } from "@/lib/i18n";
+import { useLang } from "./AuthGate";
 // v45: лупа для деталей макияжа. Стрелки, подводка и растяжка тонов на
 // портрете шириной с экран — примерно 1 пиксель: без увеличения их просто
 // не видно. Этот просмотрщик даёт честный зум до 4x (нативное разрешение
@@ -81,6 +83,8 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
   // а не к экрану. Портал в body выносит лупу из-под влияния трансформаций.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // v49: подписи и aria-метки лупы на языке интерфейса
+  const { lang } = useLang();
 
   const apply = useCallback((v: View) => {
     viewRef.current = v;
@@ -447,17 +451,17 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
       className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Просмотр образа с увеличением"
+      aria-label={t(lang, "zoom.aria")}
       data-testid="zoom-viewer"
     >
       {/* Шапка: подпись и явный выход — чёрный экран больше не «ловушка» */}
       <div className="flex items-center justify-between px-4 pt-4">
         <p className="text-sm font-semibold text-[#F8F1E1]/90">
-          Лупа деталей {scaled && <span className="ml-1 text-[#F6B93B]">×{view.scale.toFixed(1)}</span>}
+          {t(lang, "zoom.title")} {scaled && <span className="ml-1 text-[#F6B93B]">×{view.scale.toFixed(1)}</span>}
         </p>
         <button
           type="button"
-          aria-label="Закрыть просмотр"
+          aria-label={t(lang, "zoom.close")}
           className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white"
           onClick={onClose}
           data-testid="zoom-close"
@@ -497,7 +501,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
           variant="outline"
           size="icon"
           className="h-11 w-11 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
-          aria-label="Уменьшить"
+          aria-label={t(lang, "zoom.out")}
           onClick={() => stepZoom(1 / 1.4)}
           disabled={!scaled}
           data-testid="zoom-out"
@@ -508,7 +512,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
           variant="outline"
           size="icon"
           className="h-11 w-11 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
-          aria-label="Сбросить масштаб"
+          aria-label={t(lang, "zoom.reset")}
           onClick={reset}
           disabled={!scaled}
           data-testid="zoom-reset"
@@ -519,7 +523,7 @@ export function ZoomViewer({ src, alt, focus = null, footer = null, onClose }: Z
           variant="outline"
           size="icon"
           className="h-11 w-11 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20"
-          aria-label="Увеличить"
+          aria-label={t(lang, "zoom.in")}
           onClick={() => stepZoom(1.4)}
           disabled={view.scale >= MAX_SCALE - 0.01}
           data-testid="zoom-in"

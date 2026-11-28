@@ -13,6 +13,8 @@
 import { Link2, Mail, MessageCircle, Paperclip, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/download";
+import { t } from "@/lib/i18n";
+import { useLang } from "./AuthGate";
 
 interface TransferSheetProps {
   open: boolean;
@@ -42,17 +44,18 @@ export function TransferSheet({
   onSaveDevice,
   onCreateLink,
 }: TransferSheetProps) {
+  const { lang } = useLang();
   if (!open) return null;
 
   const linkText = linkUrl
-    ? `Вот ваш образ GlamAI Studio 💄 — откройте ссылку и сохраните фото: ${linkUrl}`
-    : "Вот ваш образ GlamAI Studio 💄 — фото вкладываю следом";
+    ? t(lang, "ts.shareText", { url: linkUrl })
+    : t(lang, "ts.shareTextNoLink");
   const waHref = `https://wa.me/?text=${encodeURIComponent(linkText)}`;
   const mailBody = linkUrl
-    ? `Здравствуйте!\n\nВаш образ GlamAI Studio — по ссылке (фото доступно 7 дней): ${linkUrl}\n\nGlamAI Studio`
-    : "Здравствуйте!\n\nВаш образ GlamAI Studio — во вложении к письму.\n\nGlamAI Studio";
+    ? t(lang, "ts.mailBody", { url: linkUrl })
+    : t(lang, "ts.mailBodyNoLink");
   const mailHref = `mailto:?subject=${encodeURIComponent(
-    "Ваш образ GlamAI Studio"
+    t(lang, "ts.mailSubject")
   )}&body=${encodeURIComponent(mailBody)}`;
 
   return (
@@ -61,7 +64,7 @@ export function TransferSheet({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Передать фото клиенту"
+      aria-label={t(lang, "res.transferAria")}
       data-testid="transfer-sheet"
     >
       <div
@@ -70,13 +73,13 @@ export function TransferSheet({
       >
         <div className="flex items-center justify-between">
           <p className="font-serif text-lg text-[#F8F1E1]">
-            Передать фото клиенту
+            {t(lang, "res.transferTitle")}
           </p>
           <Button
             variant="ghost"
             size="sm"
             onClick={onClose}
-            aria-label="Закрыть"
+            aria-label={t(lang, "ts.closeAria")}
             className="h-8 px-2 text-muted-foreground hover:text-white"
             data-testid="transfer-sheet-close"
           >
@@ -99,16 +102,13 @@ export function TransferSheet({
             >
               <Link2 className="h-4 w-4" aria-hidden />
               {linkBusy
-                ? "Готовим ссылку…"
+                ? t(lang, "res.linkBusy")
                 : linkUrl
-                  ? "Ссылка готова — она под фото"
-                  : "Получить ссылку для клиента"}
+                  ? t(lang, "ts.linkReadyShort")
+                  : t(lang, "ts.linkForClient")}
             </Button>
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              Ссылка доносит фото до клиента в ЛЮБОЙ мессенджер — WhatsApp,
-              MAX, почту: клиент откроет её и сохранит фото одной кнопкой.
-              Ссылка живёт 7 дней. После создания она появится под фото —
-              скопируйте и вставьте в сообщение.
+              {t(lang, "ts.linkHint")}
             </p>
             {linkUrl && (
               <p className="mt-2 break-all rounded-lg border border-[#F8F1E1]/15 bg-[#032B16]/80 p-2 text-[11px] leading-relaxed text-[#E7DFC9]">
@@ -136,13 +136,10 @@ export function TransferSheet({
                   data-testid="sheet-bot-send"
                 >
                   <Send className="h-4 w-4" aria-hidden />
-                  {sending ? "Отправляем…" : "Отправить ботом в Telegram"}
+                  {sending ? t(lang, "ts.sending") : t(lang, "ts.sendBot")}
                 </Button>
                 <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                  Фото придёт в чат с ботом, и мы откроем его сами. Оттуда:
-                  «Переслать» клиенту — или сохраните фото в галерею через
-                  меню фото (Android: три точки → «Сохранить в галерею»;
-                  iPhone: «Поделиться» → «Сохранить изображение»).
+                  {t(lang, "ts.botHint")}
                 </p>
               </>
             ) : (
@@ -154,12 +151,10 @@ export function TransferSheet({
                   data-testid="sheet-save-device"
                 >
                   <Paperclip className="h-4 w-4" aria-hidden />
-                  Сохранить фото на устройство
+                  {t(lang, "ts.saveDevice")}
                 </Button>
                 <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                  Затем в мессенджере или почте нажмите «скрепка» → «Галерея»
-                  и выберите сохранённое фото. Ссылка не может вложить файл
-                  сама — так устроены все мессенджеры.
+                  {t(lang, "ts.saveDeviceHint")}
                 </p>
               </>
             )}
@@ -175,10 +170,10 @@ export function TransferSheet({
           <div className="flex-1">
             <p className="text-xs leading-relaxed text-muted-foreground">
               {linkUrl
-                ? "Дублируем ссылку в чат (или вложите само фото после сохранения):"
+                ? t(lang, "ts.dupLink")
                 : telegramMode
-                  ? "После сохранения в галерею откройте мессенджер и вложите фото скрепкой:"
-                  : "Открыть чат сразу (фото вкладывается скрепкой в самом чате):"}
+                  ? t(lang, "ts.dupFile")
+                  : t(lang, "ts.openChat")}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Button
@@ -211,7 +206,7 @@ export function TransferSheet({
                 data-testid="sheet-mail"
               >
                 <Mail className="h-3.5 w-3.5" aria-hidden />
-                Почта
+                {t(lang, "ts.mail")}
               </Button>
             </div>
           </div>

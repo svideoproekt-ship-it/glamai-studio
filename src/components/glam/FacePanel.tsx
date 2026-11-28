@@ -13,7 +13,9 @@ import {
   type FaceProductId,
   type ProductState,
 } from "@/lib/makeup";
+import { areaLabel, areaDesc, enableAria, productDesc, productLabel, toolsTitle } from "@/lib/i18n";
 import { FinishChips, IntensityChips, SwatchPicker, ToolPicker } from "./ConstructorBits";
+import { useLang } from "./AuthGate";
 
 /** Акцентный цвет каждого продукта — у каждого своя «упаковка» (без тревожного красного) */
 const PRODUCT_ACCENTS: Record<string, string> = {
@@ -31,6 +33,7 @@ interface FacePanelProps {
 }
 
 export function FacePanel({ face, onPatch, tools, onToggleTool }: FacePanelProps) {
+  const { lang } = useLang();
   return (
     <div className="space-y-3">
       {FACE_PRODUCT_IDS.map((id, idx) => {
@@ -79,7 +82,7 @@ export function FacePanel({ face, onPatch, tools, onToggleTool }: FacePanelProps
                     state.enabled ? "text-[#6F4E37]" : "text-[#6F4E37]/80"
                   )}
                 >
-                  {def.label}
+                  {productLabel(lang, id)}
                 </div>
                 <div
                   className={cn(
@@ -87,13 +90,13 @@ export function FacePanel({ face, onPatch, tools, onToggleTool }: FacePanelProps
                     state.enabled ? "text-[#6F4E37]/75" : "text-[#6F4E37]/60"
                   )}
                 >
-                  {def.desc}
+                  {productDesc(lang, id)}
                 </div>
               </div>
               <Switch
                 checked={state.enabled}
                 onCheckedChange={(checked) => onPatch(id, { enabled: checked })}
-                aria-label={`Включить: ${def.label}`}
+                aria-label={enableAria(lang, productLabel(lang, id))}
               />
             </div>
 
@@ -107,7 +110,7 @@ export function FacePanel({ face, onPatch, tools, onToggleTool }: FacePanelProps
                   color={state.color}
                   accent={accent}
                   onChange={(hex) => onPatch(id, { color: hex })}
-                  label={def.label}
+                  label={productLabel(lang, id)}
                 />
                 <IntensityChips
                   value={state.intensity}
@@ -128,7 +131,7 @@ export function FacePanel({ face, onPatch, tools, onToggleTool }: FacePanelProps
         toolIds={FACE_TOOLS}
         selected={tools}
         onToggle={onToggleTool}
-        title="Инструменты"
+        title={toolsTitle(lang)}
         testId="face-tools"
       />
     </div>

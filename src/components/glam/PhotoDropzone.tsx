@@ -4,6 +4,8 @@ import { useCallback, useRef, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { prepareImage } from "@/lib/client-image";
+import { t } from "@/lib/i18n";
+import { useLang } from "./AuthGate";
 
 export interface PhotoValue {
   dataUrl: string;
@@ -20,6 +22,7 @@ interface PhotoDropzoneProps {
 }
 
 export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDropzoneProps) {
+  const { lang } = useLang();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -33,7 +36,7 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
         const prepared = await prepareImage(file);
         onChange({ dataUrl: prepared.dataUrl, ratio: prepared.ratio, name: prepared.name });
       } catch (e) {
-        onError?.(e instanceof Error ? e.message : "Не удалось загрузить изображение");
+        onError?.(e instanceof Error ? e.message : t(lang, "dz.errDefault"));
       } finally {
         setBusy(false);
       }
@@ -54,7 +57,7 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
             className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:text-destructive"
           >
             <X className="h-3.5 w-3.5" />
-            Убрать
+            {t(lang, "dz.remove")}
           </button>
         )}
       </div>
@@ -105,10 +108,10 @@ export function PhotoDropzone({ title, hint, value, onChange, onError }: PhotoDr
             )}
           </div>
           <span className="text-base font-semibold text-[#F8F1E1]">
-            {dragOver ? "Отпускайте — загружаем!" : "Перетащите фото сюда"}
+            {dragOver ? t(lang, "dz.dropOver") : t(lang, "dz.drop")}
           </span>
           <span className="text-sm text-muted-foreground">
-            или нажмите, чтобы выбрать файл · {hint}
+            {t(lang, "dz.orPick")} · {hint}
           </span>
         </button>
       )}

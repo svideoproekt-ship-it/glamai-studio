@@ -38,7 +38,7 @@ export async function gateTryon(req: NextRequest): Promise<GateResult> {
         {
           success: false,
           authRequired: true,
-          error: "Войдите через Telegram — пробный доступ даёт 5 бесплатных образов.",
+          error: "Войдите через Telegram — первая генерация бесплатная.",
         },
         401
       ),
@@ -67,12 +67,15 @@ export async function gateTryon(req: NextRequest): Promise<GateResult> {
               planLabel: allowance.planLabel,
               remaining: allowance.remaining,
               total: allowance.total,
+              bonus: allowance.bonus ?? 0,
+              trialRemaining: allowance.trialRemaining ?? 0,
+              paidRemaining: allowance.paidRemaining ?? 0,
               reason: allowance.reason,
             },
             error:
               allowance.reason === "quota_exhausted"
                 ? "Месячный лимит тарифа исчерпан. Продлите подписку или перейдите на «Салон»."
-                : "Пробные образы закончились. Оформите подписку — и продолжим.",
+                : "Бесплатные образы закончились. Забери генерации пакетом — и продолжим.",
           },
           402
         ),

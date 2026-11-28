@@ -22,8 +22,9 @@ import {
   saveImageFile,
   shareImage,
 } from "@/lib/download";
-import { openTelegramChat, useAuth } from "./AuthGate";
+import { openTelegramChat, useAuth, useLang } from "./AuthGate";
 import { TransferSheet } from "./TransferSheet";
+import { loadingStatuses, t } from "@/lib/i18n";
 import {
   Collapsible,
   CollapsibleContent,
@@ -32,14 +33,7 @@ import {
 import { BeforeAfterSlider } from "./BeforeAfterSlider";
 import { ZoomViewer, EYES_FOCUS, type ZoomFocus } from "./ZoomViewer";
 
-const STATUSES = [
-  "Изучаем черты лица…",
-  "Подбираем оттенки…",
-  "Наносим тени…",
-  "Прорисовываем стрелки…",
-  "Смешиваем текстуры…",
-  "Финальный штрих…",
-];
+// Статусы загрузки — берутся из словаря (loadingStatuses(lang)) в компоненте.
 
 const DOT_COLORS = ["#B98A2E", "#D4A437", "#F6B93B"];
 
@@ -47,6 +41,7 @@ const DOT_COLORS = ["#B98A2E", "#D4A437", "#F6B93B"];
  *  Образ уже выбран — это самый горячий момент для записи к мастеру. */
 function StudioBookingCard() {
   const { profile } = useAuth();
+  const { lang } = useLang();
   const studio = profile?.studio;
   if (!studio) return null;
   return (
@@ -55,10 +50,10 @@ function StudioBookingCard() {
       data-testid="studio-booking-result"
     >
       <p className="text-sm font-bold text-[#F8F1E1]">
-        Образ выбран — запишитесь в «{studio.name}»
+        {t(lang, "res.bookingTitle", { name: studio.name })}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-[#F8F1E1]/75">
-        Визажист студии воплотит этот образ. Первые 5 примерок — за счёт GlamAI Studio.
+        {t(lang, "res.bookingDesc")}
       </p>
       {studio.bookingUrl && (
         <Button
@@ -67,7 +62,7 @@ function StudioBookingCard() {
           data-testid="studio-book-result"
         >
           <ExternalLink className="h-4 w-4" aria-hidden />
-          Записаться в «{studio.name}»
+          {t(lang, "banner.bookIn", { name: studio.name })}
         </Button>
       )}
     </div>
@@ -97,6 +92,7 @@ export function ResultPanel({
   maxLink = "",
   onReset,
 }: ResultPanelProps) {
+  const { lang } = useLang();
   const [tick, setTick] = useState(0);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
@@ -115,8 +111,8 @@ export function ResultPanel({
   useEffect(() => {
     if (!loading) return;
     setTick(0);
-    const t = setInterval(() => setTick((x) => x + 1), 2800);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setTick((x) => x + 1), 2800);
+    return () => clearInterval(timer);
   }, [loading]);
 
   // Новый образ — новая ссылка: старая остаётся жить свои 7 дней на сервере,
@@ -126,7 +122,7 @@ export function ResultPanel({
   }, [result]);
 
   if (loading) {
-    const status = STATUSES[tick % STATUSES.length];
+    const status = loadingStatuses(lang)[tick % 6];
     return (
       <div
         aria-live="polite"
@@ -181,7 +177,7 @@ export function ResultPanel({
             ))}
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Обычно занимает 20–60 секунд
+            {t(lang, "res.usual")}
           </p>
         </div>
       </div>
@@ -198,7 +194,7 @@ export function ResultPanel({
     setSaving(true);
     setSaveHint(null);
     try {
-      const how = await shareImage(result, "Образ GlamAI Studio 💄");
+      const how = await shareImage(result, t(lang, "res.shareText"));
       if (how === "share") return; // системное меню открылось (или мастер закрыл его сам)
       setSheetOpen(true);
     } finally {
@@ -226,7 +222,7 @@ export function ResultPanel({
         error?: string;
       };
       if (!data.ok || !data.id) {
-        setSaveHint(data.error ?? "Не удалось создать ссылку, попробуйте ещё раз.");
+        setSaveHint(data.error ?? t(lang, "res.linkFail"));
         setTimeout(() => setSaveHint(null), 15_000);
         return null;
       }
@@ -234,7 +230,7 @@ export function ResultPanel({
       setLinkUrl(url);
       return url;
     } catch {
-      setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
+      setSaveHint(t(lang, "res.netFail"));
       setTimeout(() => setSaveHint(null), 12_000);
       return null;
     } finally {
@@ -245,9 +241,7 @@ export function ResultPanel({
   const handleMakeLink = async () => {
     const url = await ensureLinkUrl();
     if (url) {
-      setSaveHint(
-        "Ссылка готова — отправьте её клиенту в любом мессенджере или откройте сами и нажмите «Сохранить фото»."
-      );
+      setSaveHint(t(lang, "res.linkReadyMsg"));
       setTimeout(() => setSaveHint(null), 15_000);
     }
   };
@@ -256,7 +250,7 @@ export function ResultPanel({
     if (!linkUrl) return;
     try {
       await navigator.clipboard.writeText(linkUrl);
-      setSaveHint("Ссылка скопирована — вставьте её в сообщение клиенту.");
+      setSaveHint(t(lang, "res.linkCopied"));
     } catch {
       // Clipboard API бывает недоступен — резервный путь через textarea
       const ta = document.createElement("textarea");
@@ -267,7 +261,7 @@ export function ResultPanel({
       ta.select();
       try {
         document.execCommand("copy");
-        setSaveHint("Ссылка скопирована — вставьте её в сообщение клиенту.");
+        setSaveHint(t(lang, "res.linkCopied"));
       } catch {
         setSaveHint(linkUrl); // покажем ссылку — её можно выделить руками
       }
@@ -295,19 +289,17 @@ export function ResultPanel({
         botUsername?: string;
       };
       if (!data.ok) {
-        setSaveHint(data.error ?? "Не удалось отправить, попробуйте ещё раз.");
+        setSaveHint(data.error ?? t(lang, "res.sendFail"));
       } else {
         setSheetOpen(false);
-        setSaveHint(
-          "Фото в чате с ботом — открыли его для вас: «Переслать» клиенту или сохранить в галерею через меню фото."
-        );
+        setSaveHint(t(lang, "res.sentToBot"));
         if (data.botUsername) {
           openTelegramChat(`https://t.me/${data.botUsername}`);
         }
       }
       setTimeout(() => setSaveHint(null), 15_000);
     } catch {
-      setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
+      setSaveHint(t(lang, "res.netFail"));
       setTimeout(() => setSaveHint(null), 12_000);
     } finally {
       setSending(false);
@@ -318,9 +310,7 @@ export function ResultPanel({
   // лупа с зумом, и подсказка про сохранение внизу
   const openFallbackViewer = () => {
     setZoomFocus(null);
-    setZoomFooter(
-      "Удерживайте палец на фото — телефон предложит «Сохранить» (срабатывает не везде). Надёжнее всего — «Получить ссылку»: фото откроется в браузере с кнопкой «Сохранить фото»."
-    );
+    setZoomFooter(t(lang, "res.iosHold"));
     setZoomOpen(true);
   };
 
@@ -348,9 +338,7 @@ export function ResultPanel({
   };
 
   const botSaveHint = (): string =>
-    isIosDevice()
-      ? "Фото уже в чате с ботом — открыли его для вас. Нажмите на фото → «Поделиться» → «Сохранить изображение» — фото окажется в галерее."
-      : "Фото уже в чате с ботом — открыли его для вас. Откройте фото на весь экран → меню (три точки) → «Сохранить в галерею».";
+    isIosDevice() ? t(lang, "res.iosMenu") : t(lang, "res.androidMenu");
 
   // «Сохранить в галерею»: гарантированный путь к фото в галерее телефона.
   // В WebView Telegram ни скачивание, ни долгое нажатие не работают —
@@ -371,21 +359,14 @@ export function ResultPanel({
         const url = await ensureLinkUrl();
         if (url) {
           openExternal(url);
-          setSaveHint(
-            isIosDevice()
-              ? "Открыли фото в браузере: нажмите «Сохранить фото» — или удерживайте палец на фото → «Добавить в Фото». Этой же ссылкой можно отправить фото клиенту."
-              : "Открыли фото в браузере: нажмите «Сохранить фото» — оно окажется в галерее. Этой же ссылкой можно отправить фото клиенту."
-          );
+          setSaveHint(isIosDevice() ? t(lang, "res.browserIos") : t(lang, "res.browserOther"));
           setTimeout(() => setSaveHint(null), 25_000);
           return;
         }
         // Ссылку создать не вышло (причина уже показана) — запасной путь: бот
         const data = await sendViaBot();
         if (!data.ok) {
-          setSaveHint(
-            data.error ??
-              "Не удалось отправить, попробуйте ещё раз."
-          );
+          setSaveHint(data.error ?? t(lang, "res.sendFail"));
           // запасной путь, если бот не настроен: лупа с зумом
           openFallbackViewer();
           return;
@@ -393,7 +374,7 @@ export function ResultPanel({
         setSaveHint(botSaveHint());
         openBotChat(data.botUsername);
       } catch {
-        setSaveHint("Не удалось связаться с сервером, попробуйте ещё раз.");
+        setSaveHint(t(lang, "res.netFail"));
         openFallbackViewer();
       } finally {
         setSending(false);
@@ -408,11 +389,9 @@ export function ResultPanel({
     setSaveHint(null);
     try {
       if (isIosDevice()) {
-        const how = await shareImage(result, "Образ GlamAI Studio 💄");
+        const how = await shareImage(result, t(lang, "res.shareText"));
         if (how === "share") {
-          setSaveHint(
-            "В меню выберите «Сохранить изображение» — фото попадёт в галерею."
-          );
+          setSaveHint(t(lang, "sv.hintShare"));
           setTimeout(() => setSaveHint(null), 12_000);
           return;
         }
@@ -420,14 +399,10 @@ export function ResultPanel({
       }
       const how = await saveImageFile(result, `glamai-look-${Date.now()}`, "download-only");
       if (how === "download") {
-        setSaveHint(
-          "Фото в «Загрузках» — оно видно в галерее, и его можно вложить в сообщение мессенджера."
-        );
+        setSaveHint(t(lang, "res.downloaded"));
         setTimeout(() => setSaveHint(null), 12_000);
       } else if (how === "tab" || how === "opened-raw") {
-        setSaveHint(
-          "Прямое скачивание здесь недоступно — открыли фото крупно: удерживайте палец → «Сохранить в галерею»."
-        );
+        setSaveHint(t(lang, "res.noDirect"));
         setTimeout(() => setSaveHint(null), 15_000);
       }
     } finally {
@@ -441,25 +416,25 @@ export function ResultPanel({
         <div className="float-y rounded-full bg-gradient-to-br from-[#F6B93B]/20 via-[#E9C46A]/15 to-[#D4A437]/15 p-4 shadow-inner">
           <Sparkles className="h-8 w-8 text-[#F6B93B]" />
         </div>
-        <p className="font-serif text-2xl text-[#F8F1E1]">Результат появится здесь</p>
+        <p className="font-serif text-2xl text-[#F8F1E1]">{t(lang, "res.empty")}</p>
         <ol className="space-y-2 text-sm text-muted-foreground">
           <li className="flex items-center gap-2">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#D4A437]/25 text-xs font-bold text-[#F3E2B9]">
               1
             </span>
-            Загрузите фото модели или клиента
+            {t(lang, "res.step1")}
           </li>
           <li className="flex items-center gap-2">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#B76E79]/25 text-xs font-bold text-[#F0D3D8]">
               2
             </span>
-            Соберите образ в палитре или с референсом
+            {t(lang, "res.step2")}
           </li>
           <li className="flex items-center gap-2">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F6B93B]/25 text-xs font-bold text-[#F8DFA8]">
               3
             </span>
-            Сравните «до и после» и сохраните
+            {t(lang, "res.step3")}
           </li>
         </ol>
       </div>
@@ -475,16 +450,14 @@ export function ResultPanel({
         <div className="mx-auto flex w-full max-w-md items-start gap-2.5 rounded-xl border border-[#F6B93B]/40 bg-[#2E2210]/95 p-3 text-left">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#F6B93B]" />
           <p className="text-[11px] leading-relaxed text-[#E3D0A6]">
-            Режим портрета: тариф Z.AI на вашем сервере не поддерживает правку фотографии,
-            поэтому образ создан как фотореалистичный портрет по описанию внешности с вашего
-            фото. Лицо может немного отличаться от оригинала.
+            {t(lang, "res.portraitNote")}
           </p>
         </div>
       )}
       <BeforeAfterSlider
         before={original ?? result}
         after={result}
-        alt="Образ GlamAI"
+        alt={t(lang, "res.altLook")}
         onTapPhoto={() => {
           setZoomFooter(null);
           setZoomFocus(null);
@@ -503,11 +476,11 @@ export function ResultPanel({
             setZoomFocus(EYES_FOCUS);
             setZoomOpen(true);
           }}
-          aria-label="Увеличить область глаз"
+          aria-label={t(lang, "res.zoomEyesAria")}
           data-testid="zoom-eyes"
         >
           <Eye className="h-4 w-4" aria-hidden />
-          Глаза крупно
+          {t(lang, "res.eyesBtn")}
         </Button>
         <Button
           variant="outline"
@@ -517,57 +490,54 @@ export function ResultPanel({
             setZoomFocus(null);
             setZoomOpen(true);
           }}
-          aria-label="Рассмотреть детали образа"
+          aria-label={t(lang, "res.zoomDetailsAria")}
           data-testid="zoom-details"
         >
           <ZoomIn className="h-4 w-4" aria-hidden />
-          Рассмотреть детали
+          {t(lang, "res.detailsBtn")}
         </Button>
       </div>
       <p className="mx-auto max-w-md text-center text-xs leading-relaxed text-muted-foreground">
-        Стрелки, подводка и растяжка тонов лучше всего видны вблизи: нажмите на
-        фото или «Глаза крупно» — откроется лупа. Двойное нажатие приближает
-        место касания, ещё одно возвращает обратно; один палец двигает фото,
-        кнопки + и − дают точный масштаб.
+        {t(lang, "res.zoomHint")}
       </p>
 
       {/* Единый блок передачи: без дублей. Первичная кнопка — системное
           «Поделиться» с файлом (там Telegram/WhatsApp/MAX/почта), иначе —
           лист с ботом и сохранением. «Сохранить в галерею» — отдельный путь. */}
       <div className="flex flex-col items-center gap-2">
-        <p className="text-sm font-medium text-[#F8F1E1]/90">Передайте образ клиенту</p>
+        <p className="text-sm font-medium text-[#F8F1E1]/90">{t(lang, "res.transferTitle")}</p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             className="glam-btn h-10 font-semibold"
             onClick={() => void handleTransfer()}
             disabled={saving || sending}
-            aria-label="Передать фото клиенту"
+            aria-label={t(lang, "res.transferAria")}
             data-testid="transfer-look"
           >
             <Share2 className="h-4 w-4" />
-            Передать фото клиенту
+            {t(lang, "res.transferAria")}
           </Button>
           <Button
             variant="outline"
             className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
             onClick={() => void handleMakeLink()}
             disabled={saving || sending || linkBusy}
-            aria-label="Получить ссылку на фото для клиента"
+            aria-label={t(lang, "res.linkAria")}
             data-testid="make-link"
           >
             <Link2 className="h-4 w-4" />
-            {linkBusy ? "Готовим ссылку…" : linkUrl ? "Ссылка готова" : "Получить ссылку"}
+            {linkBusy ? t(lang, "res.linkBusy") : linkUrl ? t(lang, "res.linkReady") : t(lang, "res.linkBtn")}
           </Button>
           <Button
             variant="outline"
             className="h-10 border-[#F8F1E1]/30 text-[#F8F1E1] hover:bg-white/10"
             onClick={() => void handleSaveGallery(false)}
             disabled={saving || sending}
-            aria-label="Сохранить образ в галерею устройства"
+            aria-label={t(lang, "res.saveAria")}
             data-testid="download-look"
           >
             <Download className="h-4 w-4" />
-            Сохранить в галерею
+            {t(lang, "res.saveGallery")}
           </Button>
           <Button
             variant="ghost"
@@ -575,7 +545,7 @@ export function ResultPanel({
             onClick={onReset}
           >
             <RotateCcw className="h-4 w-4" />
-            Новый образ
+            {t(lang, "res.newLook")}
           </Button>
         </div>
         {linkUrl && (
@@ -584,7 +554,7 @@ export function ResultPanel({
             data-testid="link-panel"
           >
             <p className="text-xs font-medium text-[#F8F1E1]/85">
-              Ссылка на фото (действует 7 дней):
+              {t(lang, "res.linkPanel")}
             </p>
             <p className="mt-1 break-all text-[11px] leading-relaxed text-[#E7DFC9]">
               {linkUrl}
@@ -597,7 +567,7 @@ export function ResultPanel({
                 data-testid="link-copy"
               >
                 <Copy className="h-3.5 w-3.5" aria-hidden />
-                Скопировать
+                {t(lang, "res.copyBtn")}
               </Button>
               <Button
                 size="sm"
@@ -607,7 +577,7 @@ export function ResultPanel({
                 data-testid="link-open"
               >
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                Открыть в браузере
+                {t(lang, "res.openBrowser")}
               </Button>
             </div>
           </div>
@@ -622,7 +592,7 @@ export function ResultPanel({
       {usedDescription && (
         <Collapsible className="mx-auto w-full max-w-md">
           <CollapsibleTrigger className="group mx-auto flex h-8 items-center gap-1.5 rounded-md px-3 text-xs text-muted-foreground transition-colors hover:text-[#F8F1E1]">
-            Что ИИ увидел на референсе
+            {t(lang, "res.seenOnRef")}
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -636,7 +606,7 @@ export function ResultPanel({
       {usedPrompt && (
         <Collapsible className="mx-auto w-full max-w-md">
           <CollapsibleTrigger className="group mx-auto flex h-8 items-center gap-1.5 rounded-md px-3 text-xs text-muted-foreground transition-colors hover:text-[#F8F1E1]">
-            Использованный промпт
+            {t(lang, "res.usedPrompt")}
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -672,7 +642,7 @@ export function ResultPanel({
       {zoomOpen && result && (
         <ZoomViewer
           src={result}
-          alt="Образ GlamAI Studio крупным планом"
+          alt={t(lang, "res.altZoom")}
           focus={zoomFocus}
           footer={zoomFooter}
           onClose={() => setZoomOpen(false)}

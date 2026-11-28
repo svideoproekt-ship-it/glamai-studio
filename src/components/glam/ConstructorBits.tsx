@@ -25,11 +25,19 @@ import {
 import { cn } from "@/lib/utils";
 import {
   BRUSHES,
-  INTENSITY_LABELS,
   type FinishId,
   type FinishOption,
   type Swatch,
 } from "@/lib/makeup";
+import {
+  brushHint,
+  brushLabel,
+  customShadeLabel,
+  finishLabel,
+  intensityLabel,
+  swatchName,
+} from "@/lib/i18n";
+import { useLang } from "./AuthGate";
 
 const TOOL_ICONS: Record<string, LucideIcon> = {
   fluffy: Brush,
@@ -96,6 +104,7 @@ export function SwatchPicker({
   onChange: (hex: string) => void;
   label: string;
 }) {
+  const { lang } = useLang();
   const selected = swatches.find((s) => s.hex.toLowerCase() === color.toLowerCase());
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -105,8 +114,8 @@ export function SwatchPicker({
           <button
             key={`${s.hex}${isSel ? "-sel" : ""}`}
             type="button"
-            title={s.name}
-            aria-label={`${label}: ${s.name}`}
+            title={swatchName(lang, s)}
+            aria-label={`${label}: ${swatchName(lang, s)}`}
             onClick={() => onChange(s.hex)}
             className={cn(
               "h-9 w-9 rounded-full border border-white/50 transition-transform duration-150 hover:scale-115 active:scale-90",
@@ -122,14 +131,14 @@ export function SwatchPicker({
       <label
         className="relative ml-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-dashed transition-colors hover:scale-110"
         style={{ borderColor: `${accent}99` }}
-        title="Свой оттенок"
+        title={customShadeLabel(lang)}
       >
         <input
           type="color"
           value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : accent}
           onChange={(e) => onChange(e.target.value)}
           className="color-chip absolute inset-0 h-full w-full rounded-full opacity-0"
-          aria-label={`Свой оттенок: ${label}`}
+          aria-label={`${customShadeLabel(lang)}: ${label}`}
         />
         <Plus
           className="pointer-events-none h-5 w-5 transition-transform duration-300 hover:rotate-90"
@@ -137,7 +146,7 @@ export function SwatchPicker({
         />
       </label>
       <span className="ml-auto text-sm text-[#6F4E37]/70">
-        {selected ? selected.name : "Свой оттенок"}
+        {selected ? swatchName(lang, selected) : customShadeLabel(lang)}
       </span>
     </div>
   );
@@ -151,6 +160,7 @@ export function IntensityChips({
   value: 1 | 2 | 3;
   onChange: (v: 1 | 2 | 3) => void;
 }) {
+  const { lang } = useLang();
   return (
     <div className="flex flex-wrap gap-1.5">
       {([1, 2, 3] as const).map((i) => (
@@ -160,7 +170,7 @@ export function IntensityChips({
           onClick={() => onChange(i)}
           testId={`intensity-${i}`}
         >
-          {INTENSITY_LABELS[i]}
+          {intensityLabel(lang, i)}
         </OptionChip>
       ))}
     </div>
@@ -177,12 +187,13 @@ export function FinishChips({
   value?: FinishId;
   onChange: (f: FinishId) => void;
 }) {
+  const { lang } = useLang();
   if (!finishes.length) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
       {finishes.map((f) => (
         <OptionChip key={f.id} active={value === f.id} onClick={() => onChange(f.id)}>
-          {f.label}
+          {finishLabel(lang, f.id)}
         </OptionChip>
       ))}
     </div>
@@ -204,6 +215,7 @@ export function ToolPicker({
   testId?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const { lang } = useLang();
   const activeCount = toolIds.filter((id) => selected.includes(id)).length;
   return (
     <Collapsible
@@ -241,7 +253,7 @@ export function ToolPicker({
                 type="button"
                 onClick={() => onToggle(id)}
                 aria-pressed={active}
-                title={def.hint}
+                title={brushHint(lang, id)}
                 className={cn(
                   "flex h-11 items-center gap-2 rounded-full border px-4 text-lg font-semibold transition-all active:scale-95",
                   active
@@ -262,7 +274,7 @@ export function ToolPicker({
                   style={active ? { color } : undefined}
                   aria-hidden
                 />
-                {def.label}
+                {brushLabel(lang, id)}
               </button>
             );
           })}

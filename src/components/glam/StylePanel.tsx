@@ -2,9 +2,12 @@
 
 // БЛОК 1 «Стиль, образ»: пять кнопок — из выбранного образа ИИ в дальнейшем
 // наносит палитру красок (стиль задаёт плотность и характер всего макияжа).
+// v49: названия стилей на языке интерфейса (styleLabel).
 
 import { cn } from "@/lib/utils";
 import { STYLES } from "@/lib/makeup";
+import { styleLabel } from "@/lib/i18n";
+import { useLang } from "./AuthGate";
 
 interface StylePanelProps {
   style: number;
@@ -12,6 +15,7 @@ interface StylePanelProps {
 }
 
 export function StylePanel({ style, onChange }: StylePanelProps) {
+  const { lang } = useLang();
   return (
     <div className="flex flex-wrap gap-2">
       {STYLES.map((s) => (
@@ -28,7 +32,7 @@ export function StylePanel({ style, onChange }: StylePanelProps) {
               : "border-[#E9DCC3] bg-[#F8F1E1] text-[#6F4E37] hover:bg-[#FFF8EA]"
           )}
         >
-          {s.label}
+          {styleLabel(lang, s.id)}
         </button>
       ))}
     </div>

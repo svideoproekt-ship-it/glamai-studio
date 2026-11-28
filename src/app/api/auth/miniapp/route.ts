@@ -67,7 +67,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await upsertUser({ id: data.id, username: data.username, firstName: data.firstName });
+    await upsertUser({
+      id: data.id,
+      username: data.username,
+      firstName: data.firstName,
+      // v49: язык приложения Telegram — для благодарностей и напоминаний
+      languageCode: data.languageCode,
+    });
     // Атрибуция студии-источника: только первое касание, только активная студия.
     let attributed = false;
     if (/^studio_[a-z0-9][a-z0-9-]{0,39}$/.test(startParam)) {

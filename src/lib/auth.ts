@@ -74,6 +74,9 @@ export interface MiniAppAuthData {
   lastName?: string;
   username?: string;
   photoUrl?: string;
+  /** v49: язык приложения Telegram клиента ("ru"/"en"/"de"/"fr"/…) —
+   *  по нему пишем glam_users.language_code и говорим с клиентом на его языке. */
+  languageCode?: string;
   authDate: number;
 }
 
@@ -118,6 +121,7 @@ export function verifyMiniAppInitData(
     last_name?: string;
     username?: string;
     photo_url?: string;
+    language_code?: string;
   };
   try {
     user = JSON.parse(params.get("user") ?? "") as typeof user;
@@ -132,6 +136,7 @@ export function verifyMiniAppInitData(
     lastName: user.last_name?.slice(0, 100) || undefined,
     username: user.username?.slice(0, 100) || undefined,
     photoUrl: /^https:\/\//.test(user.photo_url ?? "") ? user.photo_url : undefined,
+    languageCode: user.language_code?.slice(0, 8) || undefined,
     authDate,
   };
 }

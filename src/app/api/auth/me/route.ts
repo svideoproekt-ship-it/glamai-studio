@@ -48,6 +48,8 @@ export async function GET(req: NextRequest) {
         remaining: allowance.remaining,
         total: allowance.total,
         bonus: allowance.bonus ?? 0,
+        trialRemaining: allowance.trialRemaining ?? 0,
+        paidRemaining: allowance.paidRemaining ?? 0,
         studio: studio
           ? {
               slug: studio.slug,
